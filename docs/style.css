@@ -225,3 +225,4 @@ dialog { max-height: calc(100dvh - 32px); }
 .rec.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--bg3)); }
 .key-link { color: var(--accent2); font-size: 13px; margin-top: 4px; }
 .file-btn { flex-direction: row !important; color: var(--text) !important; font-size: 15px !important; }
+.rec:disabled:not(.installed) { opacity: .5; cursor: not-allowed; }

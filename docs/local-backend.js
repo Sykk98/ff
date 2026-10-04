@@ -9,6 +9,24 @@ const SETTINGS_KEY = 'fanfic-studio-settings';
 
 export const PHONE_PRESETS = [
   {
+    id: 'mistral',
+    label: 'Mistral Large',
+    badge: 'consigliato · piano gratuito · ottimo italiano',
+    baseUrl: '/api/mistral/v1', // ponte sullo stesso indirizzo dell'app (functions/api/mistral)
+    model: 'mistral-large-latest',
+    keyUrl: 'https://console.mistral.ai/api-keys',
+    needsProxy: true,
+  },
+  {
+    id: 'mistral-small',
+    label: 'Mistral Small',
+    badge: 'piano gratuito · più veloce, meno raffinato',
+    baseUrl: '/api/mistral/v1',
+    model: 'mistral-small-latest',
+    keyUrl: 'https://console.mistral.ai/api-keys',
+    needsProxy: true,
+  },
+  {
     id: 'venice',
     label: 'OpenRouter · Venice Uncensored',
     badge: 'gratis · senza filtri · 50 richieste al giorno',
@@ -23,14 +41,6 @@ export const PHONE_PRESETS = [
     baseUrl: 'https://openrouter.ai/api/v1',
     model: '',
     keyUrl: 'https://openrouter.ai/settings/keys',
-  },
-  {
-    id: 'mistral',
-    label: 'Mistral',
-    badge: 'piano gratuito · potrebbe non funzionare dal browser',
-    baseUrl: 'https://api.mistral.ai/v1',
-    model: 'mistral-large-latest',
-    keyUrl: 'https://console.mistral.ai/api-keys',
   },
 ];
 
@@ -72,6 +82,7 @@ function publicSettings(s) {
     apiKeyHint: apiKey ? `…${apiKey.slice(-4)}` : '',
     // i servizi online richiedono una chiave; un server sulla rete di casa può non averla
     configured: Boolean(s.model && s.baseUrl && (apiKey || /^http:\/\/(localhost|127\.|192\.168\.|10\.)/.test(s.baseUrl))),
+    preset: PHONE_PRESETS.find((p) => p.baseUrl === s.baseUrl && p.model === s.model)?.id || '',
     activeModel: s.model,
     local: true,
   };
@@ -298,5 +309,22 @@ export function createLocalBackend() {
     }
   }
 
-  return { api, streamApi, presets: PHONE_PRESETS, get persistent() { return db.persistent; } };
+  let proxyCheck = null;
+  /** true se su questo indirizzo c'è il ponte per Mistral (versione su Cloudflare Pages). */
+  function mistralProxyAvailable() {
+    proxyCheck ??= fetch('/api/mistral/health', { cache: 'no-store' })
+      .then(async (r) => r.ok && (await r.json().catch(() => ({}))).service === 'mistral-proxy')
+      .catch(() => false);
+    return proxyCheck;
+  }
+
+  return {
+    api,
+    streamApi,
+    presets: PHONE_PRESETS,
+    mistralProxyAvailable,
+    get persistent() {
+      return db.persistent;
+    },
+  };
 }

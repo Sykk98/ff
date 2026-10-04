@@ -12,11 +12,22 @@ function buildHeaders(settings) {
   return headers;
 }
 
+const hostOf = (url) => {
+  try {
+    return new URL(url, globalThis.location?.href).host;
+  } catch {
+    return url;
+  }
+};
+
+const isMistralProxy = (url) => /^\/api\/mistral\//.test(url);
+
 function networkError(url, err) {
   const inBrowser = typeof window !== 'undefined';
   if (inBrowser) {
+    if (isMistralProxy(url)) return new Error('Impossibile contattare il ponte per Mistral. Controlla la connessione.');
     return new Error(
-      `Impossibile contattare ${new URL(url).host}. Controlla la connessione. ` +
+      `Impossibile contattare ${hostOf(url)}. Controlla la connessione. ` +
         'Se il problema continua, questo servizio potrebbe non accettare richieste dirette dal browser: usa OpenRouter, che le accetta.',
     );
   }
@@ -72,6 +83,9 @@ export async function* streamOpenAI(settings, messages, { maxTokens, temperature
   }
 
   if (!res.ok) {
+    if (isMistralProxy(url) && [404, 405].includes(res.status) && !(res.headers.get('content-type') || '').includes('json')) {
+      throw new Error(PROXY_MISSING);
+    }
     const text = await res.text().catch(() => '');
     let detail = text;
     try {
@@ -105,6 +119,10 @@ export async function* streamOpenAI(settings, messages, { maxTokens, temperature
   yield { finishReason };
 }
 
+export const PROXY_MISSING =
+  'Mistral non è disponibile a questo indirizzo: serve la versione dell\'app pubblicata su Cloudflare Pages, che contiene il ponte per Mistral. ' +
+  'Qui puoi usare OpenRouter.';
+
 /** Elenco dei modelli disponibili sul servizio. */
 export async function listOpenAIModels(settings) {
   const url = settings.baseUrl.replace(/\/+$/, '') + '/models';
@@ -114,7 +132,10 @@ export async function listOpenAIModels(settings) {
   } catch (err) {
     throw networkError(url, err);
   }
-  if (!r.ok) throw new Error(`Il servizio ha risposto ${r.status}`);
+  if (!r.ok) {
+    if (isMistralProxy(url) && !(r.headers.get('content-type') || '').includes('json')) throw new Error(PROXY_MISSING);
+    throw new Error(`Il servizio ha risposto ${r.status}`);
+  }
   const j = await r.json();
   return (j.data || j.models || []).map((m) => m.id || m.name).filter(Boolean).sort();
 }

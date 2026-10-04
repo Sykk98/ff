@@ -1032,28 +1032,41 @@ function exportCurrent(format) {
 $('#exportMd').addEventListener('click', () => exportCurrent('md'));
 $('#exportTxt').addEventListener('click', () => exportCurrent('txt'));
 
-function renderPhonePresets() {
+async function renderPhonePresets() {
   const box = $('#phonePresets');
+  const proxy = await backend.mistralProxyAvailable();
+  const current = state.settings?.preset || '';
   box.innerHTML = backend.presets
-    .map(
-      (p) => `<button type="button" class="rec" data-preset="${p.id}">
-        <span><span class="rec-name">${escapeHtml(p.label)}</span><br><span class="rec-note">${escapeHtml(p.badge)}</span></span>
-        <span class="rec-meta">Scegli</span>
-      </button>`,
-    )
+    .map((p) => {
+      const off = p.needsProxy && !proxy;
+      return `<button type="button" class="rec ${current === p.id ? 'selected' : ''}" data-preset="${p.id}" ${off ? 'disabled' : ''}>
+        <span><span class="rec-name">${escapeHtml(p.label)}</span><br><span class="rec-note">${escapeHtml(
+          off ? 'non disponibile a questo indirizzo: apri l\'app dalla versione su Cloudflare Pages' : p.badge,
+        )}</span></span>
+        <span class="rec-meta">${current === p.id ? '✓ in uso' : 'Scegli'}</span>
+      </button>`;
+    })
     .join('');
+  const sel = backend.presets.find((p) => p.id === current);
+  showKeyLink(sel);
+}
+
+function showKeyLink(p) {
+  const link = $('#keyLink');
+  link.hidden = !p;
+  if (!p) return;
+  link.href = p.keyUrl;
+  link.textContent = `Crea una chiave su ${new URL(p.keyUrl).host} ↗`;
 }
 
 $('#phonePresets').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-preset]');
-  if (!btn) return;
+  if (!btn || btn.disabled) return;
   const p = backend.presets.find((x) => x.id === btn.dataset.preset);
   $('#setBaseUrl').value = p.baseUrl;
   $('#setModel').value = p.model;
   $$('#phonePresets .rec').forEach((b) => b.classList.toggle('selected', b === btn));
-  $('#keyLink').href = p.keyUrl;
-  $('#keyLink').textContent = `Crea una chiave su ${new URL(p.keyUrl).host} ↗`;
-  $('#keyLink').hidden = false;
+  showKeyLink(p);
   setResult(p.model ? 'Ora incolla la chiave API e premi «Prova connessione».' : 'Incolla la chiave API, poi premi «Carica elenco» e scegli un modello.');
   $('#setApiKey').focus();
 });

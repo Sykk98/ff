@@ -99,6 +99,26 @@ try {
   const traversal = await fetch(base + '/..%2f..%2fpackage.json');
   assert.ok(!(await traversal.text()).includes('"scripts"'), 'path traversal');
 
+  // ponte Cloudflare per Mistral (functions/api/mistral)
+  const { onRequest } = await import('../functions/api/mistral/[[path]].js');
+  const env2 = { MISTRAL_UPSTREAM: 'http://localhost:3998' };
+  const call = (p, init = {}) =>
+    onRequest({ request: new Request('https://app.pages.dev/api/mistral/' + p, init), params: { path: p.split('/') }, env: env2 });
+  const auth = { Authorization: 'Bearer test-key', 'Content-Type': 'application/json' };
+  assert.equal((await (await call('health')).json()).service, 'mistral-proxy');
+  assert.equal((await call('v1/files', { headers: auth })).status, 404, 'percorsi diversi da chat e models vietati');
+  assert.equal((await call('v1/chat/completions', { headers: auth })).status, 405, 'chat solo in POST');
+  const chatBody = JSON.stringify({ model: 'mock', stream: true, messages: [{ role: 'user', content: 'Rispondi solo con: OK' }] });
+  assert.equal((await call('v1/chat/completions', { method: 'POST', body: chatBody })).status, 401, 'chiave obbligatoria');
+  const foreign = await call('v1/chat/completions', { method: 'POST', body: chatBody, headers: { ...auth, Origin: 'https://evil.example' } });
+  assert.equal(foreign.status, 403, 'altre origini vietate');
+  const proxied = await call('v1/chat/completions', { method: 'POST', body: chatBody, headers: { ...auth, Origin: 'https://app.pages.dev' } });
+  assert.equal(proxied.status, 200);
+  const sse = await proxied.text();
+  assert.ok(sse.includes('data:') && sse.includes('[DONE]'), 'lo streaming deve passare invariato');
+  const models = await (await call('v1/models', { headers: auth })).json();
+  assert.ok(models.data.some((m) => m.id === 'mock'));
+
   console.log('\n✅ Tutti i test superati');
 } catch (err) {
   console.error('\n❌ Test fallito:', err);

@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "mock": "node scripts/mock-llm.js",
-    "test": "node scripts/e2e-test.js"
+    "test": "node scripts/e2e-test.js",
+    "dev:phone": "node scripts/pages-dev.js"
   },
   "engines": {
     "node": ">=18"
