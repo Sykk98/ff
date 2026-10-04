@@ -9,15 +9,17 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 loadEnv(path.join(ROOT, '.env'));
 
 const store = await import('./lib/store.js');
-const { generateStory, continueStory, rewriteChapter, streamInto } = await import('./lib/generator.js');
-const { chatSystemPrompt } = await import('./lib/prompts.js');
-const { complete } = await import('./lib/llm.js');
+const { streamChat } = await import('./lib/llm.js');
 const ollama = await import('./lib/ollama.js');
+const { createEngine } = await import('./docs/core/engine.js');
+const { exportStory, safeFileName } = await import('./docs/core/text.js');
+const { listOpenAIModels } = await import('./docs/core/openai.js');
+const engine = createEngine({ streamChat, saveStory: store.saveStory });
 let activePull = null; // { name, ac } — un solo download di modello alla volta
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
-const PUBLIC_DIR = path.join(ROOT, 'public');
+const PUBLIC_DIR = path.join(ROOT, 'docs'); // la stessa interfaccia è pubblicata come versione per telefono
 const running = new Map(); // storyId -> AbortController
 
 function loadEnv(file) {
@@ -93,24 +95,6 @@ async function runJob(req, res, story, fn) {
   }
 }
 
-function exportStory(story, format) {
-  const parts = [];
-  if (format === 'md') {
-    parts.push(`# ${story.title}\n`);
-    for (const ch of story.chapters) {
-      if (story.chapters.length > 1) parts.push(`## ${ch.title}\n`);
-      parts.push(ch.content.trim() + '\n');
-    }
-  } else {
-    parts.push(story.title.toUpperCase() + '\n');
-    for (const ch of story.chapters) {
-      if (story.chapters.length > 1) parts.push(`\n${ch.title}\n${'-'.repeat(Math.min(ch.title.length, 60))}\n`);
-      parts.push(ch.content.trim() + '\n');
-    }
-  }
-  return parts.join('\n');
-}
-
 // ---------- file statici ----------
 
 const MIME = {
@@ -121,6 +105,7 @@ const MIME = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
   '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json',
 };
 
 async function serveStatic(req, res, pathname) {
@@ -158,7 +143,7 @@ async function handleApi(req, res, url) {
     if (parts[1] === 'test' && method === 'POST') {
       const settings = await store.getSettings();
       const started = Date.now();
-      const { text } = await complete(settings, [{ role: 'user', content: 'Rispondi solo con: OK' }], { maxTokens: 20, temperature: 0 });
+      const { text } = await engine.complete(settings, [{ role: 'user', content: 'Rispondi solo con: OK' }], { maxTokens: 20, temperature: 0 });
       return sendJson(res, 200, { ok: true, reply: text.trim().slice(0, 200), ms: Date.now() - started });
     }
   }
@@ -217,13 +202,7 @@ async function handleApi(req, res, url) {
 
   // Elenco modelli dal provider compatibile OpenAI
   if (parts[0] === 'models' && method === 'GET') {
-    const s = await store.getSettings();
-    const r = await fetch(s.baseUrl.replace(/\/+$/, '') + '/models', {
-      headers: s.apiKey ? { Authorization: `Bearer ${s.apiKey}` } : {},
-    });
-    if (!r.ok) return sendJson(res, 502, { error: `Il provider ha risposto ${r.status}` });
-    const j = await r.json();
-    const models = (j.data || j.models || []).map((m) => m.id || m.name).filter(Boolean).sort();
+    const models = await listOpenAIModels(await store.getSettings());
     return sendJson(res, 200, { models });
   }
 
@@ -263,7 +242,7 @@ async function handleApi(req, res, url) {
 
     if (action === 'export' && method === 'GET') {
       const format = url.searchParams.get('format') === 'txt' ? 'txt' : 'md';
-      const name = (story.title || 'storia').replace(/[^\p{L}\p{N} _-]+/gu, '').trim().slice(0, 80) || 'storia';
+      const name = safeFileName(story.title);
       res.writeHead(200, {
         'Content-Type': format === 'md' ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8',
         'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}.${format}`,
@@ -276,98 +255,11 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, { ok: true });
     }
 
-    if (action === 'generate' && method === 'POST') {
+    if (method === 'POST' && Object.hasOwn(engine.actions, action)) {
       const body = await readBody(req);
-      if (body.userMessage) story.messages.push({ role: 'user', content: String(body.userMessage), at: new Date().toISOString() });
-      await store.saveStory(story);
+      if (action === 'chat' && !String(body.message || '').trim()) return sendJson(res, 400, { error: 'Messaggio vuoto' });
       const settings = await store.getSettings();
-      return runJob(req, res, story, async (emit, signal) => {
-        const before = story.chapters.length;
-        try {
-          await generateStory(story, settings, emit, signal);
-        } finally {
-          const words = store.storyWords(story);
-          const written = story.chapters.length - before;
-          if (written > 0) {
-            const finished = story.chapters.length >= story.outline.length;
-            story.messages.push({
-              role: 'assistant',
-              kind: 'generation',
-              content: finished
-                ? `Ho scritto «${story.title}»: ${story.chapters.length} ${story.chapters.length === 1 ? 'capitolo' : 'capitoli'}, circa ${words} parole. La trovi nella scheda Storia. Puoi chiedermi modifiche, scene aggiuntive o di continuarla.`
-                : `Generazione interrotta dopo ${story.chapters.length} di ${story.outline.length} capitoli (${words} parole). Premi «Riprendi» per completarla.`,
-              at: new Date().toISOString(),
-            });
-            await store.saveStory(story);
-          }
-        }
-      });
-    }
-
-    if (action === 'continue' && method === 'POST') {
-      const body = await readBody(req);
-      const direction = String(body.direction || '').trim();
-      if (direction) story.messages.push({ role: 'user', content: `Continua la storia: ${direction}`, at: new Date().toISOString() });
-      const settings = await store.getSettings();
-      return runJob(req, res, story, async (emit, signal) => {
-        await continueStory(story, settings, direction, emit, signal);
-        const ch = story.chapters.at(-1);
-        story.messages.push({
-          role: 'assistant',
-          kind: 'generation',
-          content: `Ho aggiunto il capitolo ${story.chapters.length}, «${ch.title}» (${store.countWords(ch.content)} parole).`,
-          at: new Date().toISOString(),
-        });
-        await store.saveStory(story);
-      });
-    }
-
-    if (action === 'rewrite' && method === 'POST') {
-      const body = await readBody(req);
-      const index = Number(body.index);
-      const instructions = String(body.instructions || '').trim();
-      const settings = await store.getSettings();
-      return runJob(req, res, story, async (emit, signal) => {
-        await rewriteChapter(story, index, instructions, settings, emit, signal);
-        story.messages.push({
-          role: 'assistant',
-          kind: 'generation',
-          content: `Ho riscritto il capitolo ${index + 1}, «${story.chapters[index].title}»${instructions ? ` (${instructions})` : ''}.`,
-          at: new Date().toISOString(),
-        });
-        await store.saveStory(story);
-      });
-    }
-
-    if (action === 'chat' && method === 'POST') {
-      const body = await readBody(req);
-      const message = String(body.message || '').trim();
-      if (!message) return sendJson(res, 400, { error: 'Messaggio vuoto' });
-      story.messages.push({ role: 'user', content: message, at: new Date().toISOString() });
-      await store.saveStory(story);
-      const settings = await store.getSettings();
-      return runJob(req, res, story, async (emit, signal) => {
-        const history = story.messages
-          .filter((m) => m.role === 'user' || m.role === 'assistant')
-          .slice(-20)
-          .map((m) => ({ role: m.role, content: m.content }));
-        const messages = [{ role: 'system', content: chatSystemPrompt(story) }, ...history];
-        let text = '';
-        const collect = (ev) => {
-          if (ev.type === 'delta') text += ev.text;
-          emit(ev);
-        };
-        try {
-          await streamInto(settings, messages, {}, collect, signal);
-        } finally {
-          // salva anche le risposte parziali (es. se l'utente interrompe)
-          if (text.trim()) {
-            const s = await store.getStory(id);
-            s.messages.push({ role: 'assistant', content: text.trim(), at: new Date().toISOString() });
-            await store.saveStory(s);
-          }
-        }
-      });
+      return runJob(req, res, story, (emit, signal) => engine.actions[action](story, body, settings, emit, signal));
     }
   }
 

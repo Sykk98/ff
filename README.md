@@ -16,6 +16,29 @@ Scrivi nella chat trama, personaggi e lunghezza: l'AI prepara una scaletta e scr
 - **Interruzione e ripresa**: puoi fermare la generazione e riprenderla dal capitolo successivo.
 - Tutto resta sul tuo computer, in file JSON nella cartella `data/`.
 
+## Versione per telefono
+
+L'app funziona anche solo dal telefono, senza computer e senza installare niente. In questa versione l'AI lavora online e le storie restano salvate nel browser del telefono.
+
+**Indirizzo:** https://sykk98.github.io/ff/ (attivo dopo aver acceso GitHub Pages, vedi sotto).
+
+**Come iniziare**
+1. Crea un account gratuito su [openrouter.ai](https://openrouter.ai) e genera una chiave API in Settings → Keys.
+2. Apri l'app sul telefono. Nelle Impostazioni scegli «OpenRouter · Venice Uncensored», incolla la chiave, premi «Prova connessione» e poi Salva.
+3. Dal menu del browser scegli «Aggiungi a schermata Home» per aprirla come un'app.
+
+**Da sapere**
+- Il modello gratuito Venice Uncensored non ha filtri, ma OpenRouter limita i modelli gratuiti a 50 richieste al giorno. Un racconto breve ne usa da 5 a 11. Con almeno 10 dollari di credito il limite sale a 1.000.
+- Mistral è disponibile, ma potrebbe non accettare richieste dirette dal browser. In quel caso l'app lo segnala: usa OpenRouter.
+- La chiave API resta salvata solo nel browser del telefono.
+- Le storie sono salvate solo in quel browser. Cancellando i dati del browser si perdono: usa ogni tanto «Scarica backup» nelle Impostazioni.
+
+**Attivare GitHub Pages (una volta sola, si può fare dal telefono)**
+1. Apri il repository su github.com, poi Settings → Pages.
+2. In «Build and deployment» scegli Source: «Deploy from a branch».
+3. Scegli il branch che contiene la cartella `docs` e la cartella `/docs`, poi Save.
+4. Dopo un paio di minuti l'app è online all'indirizzo indicato sopra.
+
 ## Requisiti
 
 - Node.js 18 o superiore. Non servono altre dipendenze, quindi niente `npm install`.
@@ -94,10 +117,10 @@ Avvia il finto provider e il server, poi verifica stato e download dei modelli O
 server.js          server HTTP e API
 lib/llm.js         client in streaming: sceglie tra Ollama e API compatibili OpenAI
 lib/ollama.js      API nativa di Ollama: chat, modelli installati, download
-lib/prompts.js     prompt di sistema, scaletta, capitoli, riscritture, chat
-lib/generator.js   orchestrazione: richiesta → scaletta → capitoli
 lib/store.js       salvataggio di storie e impostazioni in data/
-public/            interfaccia web (HTML, CSS, JS senza framework)
+docs/              interfaccia web, pubblicata anche come versione per telefono
+docs/core/         motore condiviso tra server e telefono: prompt, scaletta, capitoli, chat
+docs/local-backend.js  versione per telefono: storie nel browser, AI chiamata direttamente
 scripts/           finto provider e test end-to-end
 ```
 

@@ -215,3 +215,13 @@ dialog { max-height: calc(100dvh - 32px); }
 .link { background: none; border: 0; color: var(--accent2); cursor: pointer; font: inherit; font-size: 12px; padding: 0; text-decoration: underline; }
 .advanced summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .advanced[open] { display: flex; flex-direction: column; gap: 10px; }
+
+/* ---------- versione per telefono (senza server) ---------- */
+.phone-only { display: none !important; }
+.local-mode .phone-only { display: flex !important; flex-direction: column; gap: 10px; }
+.local-mode details.phone-only { display: block !important; }
+.local-mode details.phone-only[open] > :not(summary) { margin-top: 10px; }
+.local-mode .server-only { display: none !important; }
+.rec.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--bg3)); }
+.key-link { color: var(--accent2); font-size: 13px; margin-top: 4px; }
+.file-btn { flex-direction: row !important; color: var(--text) !important; font-size: 15px !important; }

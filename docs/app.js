@@ -1,4 +1,8 @@
 // Fanfic Studio — interfaccia client (vanilla JS, nessuna dipendenza).
+// Funziona in due modi:
+// - con il server Node (computer): le richieste /api/... vanno al server;
+// - senza server (telefono, GitHub Pages): le stesse richieste sono gestite da local-backend.js nel browser.
+import { exportStory, safeFileName } from './core/text.js';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -15,7 +19,24 @@ const state = {
 
 // ---------- utilità ----------
 
+let backend = null; // null = server Node; altrimenti backend locale nel browser
+
+async function detectBackend() {
+  // Su GitHub Pages non c'è mai un server: evita una richiesta inutile.
+  const staticHost = /\.github\.io$/.test(location.hostname) || !location.protocol.startsWith('http');
+  if (!staticHost) {
+    try {
+      const r = await fetch('/api/settings', { cache: 'no-store' });
+      if (r.ok && (r.headers.get('content-type') || '').includes('json')) return;
+    } catch {}
+  }
+  const mod = await import('./local-backend.js');
+  backend = mod.createLocalBackend();
+  document.body.classList.add('local-mode');
+}
+
 async function api(path, opts = {}) {
+  if (backend) return backend.api(path, opts);
   const res = await fetch(path, {
     method: opts.method || 'GET',
     headers: opts.body ? { 'Content-Type': 'application/json' } : {},
@@ -28,6 +49,7 @@ async function api(path, opts = {}) {
 
 /** POST con risposta NDJSON in streaming. */
 async function streamApi(path, body, onEvent, signal) {
+  if (backend) return backend.streamApi(path, body, onEvent, signal);
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -377,8 +399,6 @@ function renderStory() {
   }
   const words = s.chapters.reduce((n, c) => n + countWords(c.content), 0);
   $('#storyStats').textContent = `${s.chapters.length}/${Math.max(s.outline.length, s.chapters.length)} capitoli · ${fmt(words)} parole · ~${Math.max(1, Math.round(words / 230))} min di lettura`;
-  $('#exportMd').href = `/api/stories/${s.id}/export?format=md`;
-  $('#exportTxt').href = `/api/stories/${s.id}/export?format=txt`;
 
   const single = s.outline.length <= 1 && s.chapters.length <= 1;
   let html = `<div class="reader-inner"><h1 class="story-title">${escapeHtml(s.title)}</h1>`;
@@ -718,7 +738,8 @@ function openSettings() {
   $('#setWpc').value = s.wordsPerChapter ?? 2000;
   $('#presetSelect').value = '';
   setResult('');
-  setProvider(s.provider || 'ollama');
+  setProvider(backend ? 'openai' : s.provider || 'ollama');
+  if (backend) renderPhonePresets();
   if (!$('#settingsDialog').open) $('#settingsDialog').showModal();
 }
 
@@ -987,9 +1008,84 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 
+// ---------- esportazione e backup (funzionano anche sul telefono) ----------
+
+function downloadText(filename, text, type) {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function exportCurrent(format) {
+  const s = state.story;
+  if (!s?.chapters.length) return toast('La storia è ancora vuota.');
+  const type = format === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8';
+  downloadText(`${safeFileName(s.title)}.${format}`, exportStory(s, format), type);
+}
+
+$('#exportMd').addEventListener('click', () => exportCurrent('md'));
+$('#exportTxt').addEventListener('click', () => exportCurrent('txt'));
+
+function renderPhonePresets() {
+  const box = $('#phonePresets');
+  box.innerHTML = backend.presets
+    .map(
+      (p) => `<button type="button" class="rec" data-preset="${p.id}">
+        <span><span class="rec-name">${escapeHtml(p.label)}</span><br><span class="rec-note">${escapeHtml(p.badge)}</span></span>
+        <span class="rec-meta">Scegli</span>
+      </button>`,
+    )
+    .join('');
+}
+
+$('#phonePresets').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-preset]');
+  if (!btn) return;
+  const p = backend.presets.find((x) => x.id === btn.dataset.preset);
+  $('#setBaseUrl').value = p.baseUrl;
+  $('#setModel').value = p.model;
+  $$('#phonePresets .rec').forEach((b) => b.classList.toggle('selected', b === btn));
+  $('#keyLink').href = p.keyUrl;
+  $('#keyLink').textContent = `Crea una chiave su ${new URL(p.keyUrl).host} ↗`;
+  $('#keyLink').hidden = false;
+  setResult(p.model ? 'Ora incolla la chiave API e premi «Prova connessione».' : 'Incolla la chiave API, poi premi «Carica elenco» e scegli un modello.');
+  $('#setApiKey').focus();
+});
+
+$('#backupExport').addEventListener('click', async () => {
+  try {
+    const data = await api('/api/backup');
+    downloadText(`fanfic-studio-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data, null, 2), 'application/json');
+    setResult(`✓ Backup creato con ${data.stories.length} storie.`, 'ok');
+  } catch (e) {
+    setResult('✗ ' + e.message, 'err');
+  }
+});
+
+$('#backupImport').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    const { imported } = await api('/api/backup', { method: 'POST', body: data });
+    await loadStories();
+    setResult(`✓ Importate ${imported} storie.`, 'ok');
+  } catch (err) {
+    setResult('✗ File di backup non valido: ' + err.message, 'err');
+  }
+});
+
 // ---------- avvio ----------
 
 (async function init() {
+  await detectBackend();
   try {
     await Promise.all([loadSettings(), loadStories()]);
   } catch (e) {

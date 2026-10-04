@@ -5,7 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Fanfic Studio</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖋️</text></svg>" />
-  <link rel="stylesheet" href="/style.css" />
+  <meta name="theme-color" content="#121016" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Fanfic Studio" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="app">
@@ -112,8 +118,8 @@
           <div class="toolbar-actions">
             <button class="btn" id="continueBtn">➕ Nuovo capitolo</button>
             <button class="btn" id="copyAllBtn">📋 Copia tutto</button>
-            <a class="btn" id="exportMd">⬇️ .md</a>
-            <a class="btn" id="exportTxt">⬇️ .txt</a>
+            <button class="btn" id="exportMd">⬇️ .md</button>
+            <button class="btn" id="exportTxt">⬇️ .txt</button>
             <button class="btn danger" id="deleteStoryBtn">🗑️</button>
           </div>
         </div>
@@ -127,7 +133,7 @@
     <form method="dialog" class="dialog" id="settingsForm">
       <h2>Impostazioni del modello AI</h2>
 
-      <div class="seg" role="tablist">
+      <div class="seg server-only" role="tablist">
         <button type="button" class="seg-btn" data-provider="ollama">🖥️ Ollama (locale, gratis)</button>
         <button type="button" class="seg-btn" data-provider="openai">☁️ Servizio online</button>
       </div>
@@ -177,8 +183,12 @@
 
       <!-- SERVIZIO ONLINE -->
       <div id="openaiSection" hidden>
-        <p class="muted">Qualsiasi API compatibile OpenAI. I contenuti ammessi dipendono dalle regole del servizio e del modello scelto.</p>
-        <label>Servizio
+        <div class="phone-only phone-intro">
+          <p class="muted">Versione per telefono: l'AI lavora online. Scegli un servizio, crea una chiave API gratuita e incollala qui sotto. I contenuti ammessi dipendono dalle regole del servizio e del modello.</p>
+          <div class="recommended" id="phonePresets"></div>
+        </div>
+        <p class="muted server-only">Qualsiasi API compatibile OpenAI. I contenuti ammessi dipendono dalle regole del servizio e del modello scelto.</p>
+        <label class="server-only">Servizio
           <select id="presetSelect">
             <option value="">— scegli un preset —</option>
             <option value="https://openrouter.ai/api/v1">OpenRouter</option>
@@ -196,6 +206,7 @@
         </label>
         <label>Chiave API <span class="muted" id="keyHint"></span>
           <input type="password" id="setApiKey" placeholder="lascia vuoto per non cambiarla" autocomplete="off" />
+          <a id="keyLink" class="key-link" target="_blank" rel="noopener" hidden></a>
         </label>
         <label>Modello
           <div class="row">
@@ -217,6 +228,14 @@
           <input type="number" id="setWpc" min="500" step="100" />
         </label>
       </div>
+      <details class="advanced phone-only">
+        <summary>Le tue storie e il backup</summary>
+        <p class="muted">Le storie sono salvate solo in questo browser, su questo telefono. Se cancelli i dati del browser le perdi: fai ogni tanto un backup e conservalo, per esempio su Google Drive o iCloud.</p>
+        <div class="row">
+          <button type="button" class="btn" id="backupExport">⬇️ Scarica backup</button>
+          <label class="btn file-btn">⬆️ Importa backup<input type="file" id="backupImport" accept="application/json,.json" hidden /></label>
+        </div>
+      </details>
       <div class="test-result" id="testResult"></div>
       <div class="dialog-actions">
         <button type="button" class="btn" id="testBtn">Prova connessione</button>
@@ -242,6 +261,6 @@
   </dialog>
 
   <div class="toast" id="toast" hidden></div>
-  <script src="/app.js" type="module"></script>
+  <script src="app.js" type="module"></script>
 </body>
 </html>

@@ -1,5 +1,7 @@
-// Orchestrazione della generazione: scheda -> scaletta -> capitoli.
-import { streamChat, complete, parseJsonLoose } from './llm.js';
+// Motore di scrittura condiviso tra server (Node) e versione per telefono (browser).
+// Orchestrazione: richiesta -> scheda -> scaletta -> capitoli, più chat e riscritture.
+// Le dipendenze esterne (client del modello e salvataggio) vengono passate a createEngine.
+import { parseJsonLoose, countWords, storyWords } from './text.js';
 import {
   wordsTarget,
   extractBriefMessages,
@@ -8,8 +10,8 @@ import {
   chapterMessages,
   continueChapterMessages,
   rewriteMessages,
+  chatSystemPrompt,
 } from './prompts.js';
-import { saveStory, countWords } from './store.js';
 
 /** Filtra i blocchi <think>…</think> che alcuni modelli locali emettono nello stream. */
 function makeThinkFilter() {
@@ -65,6 +67,29 @@ function chapterPlan(story, settings) {
   return { n, perChapter: Math.round(target / n) };
 }
 
+function tokensFor(words, settings) {
+  const est = Math.ceil(words * 2.2) + 400;
+  const cap = Number(settings.maxTokens) || 0;
+  return cap > 0 ? Math.min(cap, est) : est;
+}
+
+/**
+ * Crea il motore.
+ * @param {object} deps
+ * @param {(settings, messages, opts) => AsyncIterable<{text?: string, finishReason?: string}>} deps.streamChat
+ * @param {(story) => Promise<any>} deps.saveStory
+ */
+export function createEngine({ streamChat, saveStory }) {
+  async function complete(settings, messages, opts = {}) {
+    let text = '';
+    let finishReason = null;
+    for await (const part of streamChat(settings, messages, opts)) {
+      if (part.text) text += part.text;
+      if (part.finishReason !== undefined) finishReason = part.finishReason;
+    }
+    return { text, finishReason };
+  }
+
 async function streamInto(settings, messages, opts, emit, signal) {
   const filter = makeThinkFilter();
   let text = '';
@@ -80,12 +105,6 @@ async function streamInto(settings, messages, opts, emit, signal) {
     if (part.finishReason !== undefined) finishReason = part.finishReason;
   }
   return { text, finishReason };
-}
-
-function tokensFor(words, settings) {
-  const est = Math.ceil(words * 2.2) + 400;
-  const cap = Number(settings.maxTokens) || 0;
-  return cap > 0 ? Math.min(cap, est) : est;
 }
 
 /** Scrive un capitolo in streaming, con fino a 2 continuazioni se è troppo corto o troncato. */
@@ -180,7 +199,7 @@ async function ensureOutline(story, settings, emit, signal) {
 }
 
 /** Generazione completa: dalla richiesta fino all'ultimo capitolo previsto. */
-export async function generateStory(story, settings, emit, signal) {
+async function generateStory(story, settings, emit, signal) {
   await ensureBrief(story, settings, emit, signal);
   await ensureOutline(story, settings, emit, signal);
   const { perChapter } = chapterPlan(story, settings);
@@ -192,7 +211,7 @@ export async function generateStory(story, settings, emit, signal) {
 }
 
 /** Aggiunge un nuovo capitolo oltre la scaletta. */
-export async function continueStory(story, settings, direction, emit, signal) {
+async function continueStory(story, settings, direction, emit, signal) {
   // Se la scaletta non è ancora finita, scrivi il prossimo capitolo previsto.
   if (story.chapters.length < story.outline.length) {
     const { perChapter } = chapterPlan(story, settings);
@@ -212,7 +231,7 @@ export async function continueStory(story, settings, direction, emit, signal) {
 }
 
 /** Riscrive un capitolo esistente secondo le indicazioni dell'autore. */
-export async function rewriteChapter(story, index, instructions, settings, emit, signal) {
+async function rewriteChapter(story, index, instructions, settings, emit, signal) {
   const ch = story.chapters[index];
   if (!ch) throw Object.assign(new Error('Capitolo inesistente'), { status: 404 });
   const words = Math.max(countWords(ch.content), 300);
@@ -231,4 +250,95 @@ export async function rewriteChapter(story, index, instructions, settings, emit,
   emit({ type: 'chapter_end', index, words: countWords(content) });
 }
 
-export { streamInto };
+
+  // ---------- azioni complete (con la cronologia dei messaggi della chat) ----------
+
+  const now = () => new Date().toISOString();
+
+  async function actionGenerate(story, body, settings, emit, signal) {
+    if (body.userMessage) story.messages.push({ role: 'user', content: String(body.userMessage), at: now() });
+    await saveStory(story);
+    const before = story.chapters.length;
+    try {
+      await generateStory(story, settings, emit, signal);
+    } finally {
+      const written = story.chapters.length - before;
+      if (written > 0) {
+        const words = storyWords(story);
+        const n = story.chapters.length;
+        const finished = n >= story.outline.length;
+        story.messages.push({
+          role: 'assistant',
+          kind: 'generation',
+          content: finished
+            ? `Ho scritto «${story.title}»: ${n} ${n === 1 ? 'capitolo' : 'capitoli'}, circa ${words} parole. La trovi nella scheda Storia. Puoi chiedermi modifiche, scene aggiuntive o di continuarla.`
+            : `Generazione interrotta dopo ${n} di ${story.outline.length} capitoli (${words} parole). Premi «Riprendi» per completarla.`,
+          at: now(),
+        });
+        await saveStory(story);
+      }
+    }
+  }
+
+  async function actionContinue(story, body, settings, emit, signal) {
+    const direction = String(body.direction || '').trim();
+    if (direction) story.messages.push({ role: 'user', content: `Continua la storia: ${direction}`, at: now() });
+    await continueStory(story, settings, direction, emit, signal);
+    const ch = story.chapters.at(-1);
+    story.messages.push({
+      role: 'assistant',
+      kind: 'generation',
+      content: `Ho aggiunto il capitolo ${story.chapters.length}, «${ch.title}» (${countWords(ch.content)} parole).`,
+      at: now(),
+    });
+    await saveStory(story);
+  }
+
+  async function actionRewrite(story, body, settings, emit, signal) {
+    const index = Number(body.index);
+    const instructions = String(body.instructions || '').trim();
+    await rewriteChapter(story, index, instructions, settings, emit, signal);
+    story.messages.push({
+      role: 'assistant',
+      kind: 'generation',
+      content: `Ho riscritto il capitolo ${index + 1}, «${story.chapters[index].title}»${instructions ? ` (${instructions})` : ''}.`,
+      at: now(),
+    });
+    await saveStory(story);
+  }
+
+  async function actionChat(story, body, settings, emit, signal) {
+    const message = String(body.message || '').trim();
+    if (!message) throw Object.assign(new Error('Messaggio vuoto'), { status: 400 });
+    story.messages.push({ role: 'user', content: message, at: now() });
+    await saveStory(story);
+    const history = story.messages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .slice(-20)
+      .map((m) => ({ role: m.role, content: m.content }));
+    const messages = [{ role: 'system', content: chatSystemPrompt(story) }, ...history];
+    let text = '';
+    const collect = (ev) => {
+      if (ev.type === 'delta') text += ev.text;
+      emit(ev);
+    };
+    try {
+      await streamInto(settings, messages, {}, collect, signal);
+    } finally {
+      // salva anche le risposte parziali (es. se l'utente interrompe)
+      if (text.trim()) {
+        story.messages.push({ role: 'assistant', content: text.trim(), at: now() });
+        await saveStory(story);
+      }
+    }
+  }
+
+  return {
+    complete,
+    streamInto,
+    generateStory,
+    continueStory,
+    rewriteChapter,
+    actions: { generate: actionGenerate, continue: actionContinue, rewrite: actionRewrite, chat: actionChat },
+  };
+}
