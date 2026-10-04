@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fanfic Studio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖋️</text></svg>" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">🖋️ Fanfic Studio</div>
+      <button class="btn primary block" id="newStoryBtn">+ Nuova storia</button>
+      <div class="story-list" id="storyList"></div>
+      <button class="btn ghost block" id="settingsBtn">⚙️ Impostazioni</button>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="btn ghost icon mobile-only" id="menuBtn" aria-label="Menu">☰</button>
+        <input class="title-input" id="titleInput" placeholder="Nuova storia" />
+        <nav class="tabs">
+          <button class="tab active" data-tab="chat">Chat</button>
+          <button class="tab" data-tab="story">Storia <span class="badge" id="wordBadge"></span></button>
+        </nav>
+      </header>
+
+      <!-- CHAT -->
+      <section class="view" id="chatView">
+        <div class="messages" id="messages"></div>
+
+        <div class="composer">
+          <details class="options" id="optionsPanel">
+            <summary>Opzioni della storia <span class="opt-summary" id="optSummary"></span></summary>
+            <div class="options-grid">
+              <label>Lunghezza
+                <select id="optLength">
+                  <option value="flash">Flash fiction (~800 parole)</option>
+                  <option value="breve" selected>Racconto breve (~2.000)</option>
+                  <option value="medio">Racconto (~5.000)</option>
+                  <option value="lungo">Racconto lungo (~12.000)</option>
+                  <option value="novella">Novella (~25.000)</option>
+                  <option value="romanzo">Romanzo (~50.000)</option>
+                  <option value="custom">Personalizzata…</option>
+                  <option value="auto">Dal testo della richiesta</option>
+                </select>
+              </label>
+              <label id="customWordsWrap" hidden>Parole totali
+                <input type="number" id="optWords" min="200" step="100" value="3000" />
+              </label>
+              <label>Punto di vista
+                <select id="optPov">
+                  <option value="">Libero</option>
+                  <option value="prima">Prima persona</option>
+                  <option value="terza">Terza persona limitata</option>
+                  <option value="onnisciente">Terza onnisciente</option>
+                  <option value="seconda">Seconda persona</option>
+                </select>
+              </label>
+              <label>Tempo verbale
+                <select id="optTense">
+                  <option value="">Libero</option>
+                  <option value="passato">Passato</option>
+                  <option value="presente">Presente</option>
+                </select>
+              </label>
+              <label>Lingua
+                <select id="optLang">
+                  <option value="italiano">Italiano</option>
+                  <option value="inglese">English</option>
+                  <option value="spagnolo">Español</option>
+                  <option value="francese">Français</option>
+                  <option value="tedesco">Deutsch</option>
+                  <option value="portoghese">Português</option>
+                </select>
+              </label>
+              <label>Scene sessuali
+                <select id="optExplicit">
+                  <option value="explicit">Esplicite</option>
+                  <option value="fade">Con dissolvenza</option>
+                  <option value="none">Nessuna</option>
+                </select>
+              </label>
+              <label class="check"><input type="checkbox" id="optDark" checked /> Temi dark e non etici</label>
+              <label class="wide">Genere / stile (facoltativo)
+                <input type="text" id="optStyle" placeholder="es. dark romance, horror psicologico, prosa cruda e ironica…" />
+              </label>
+            </div>
+          </details>
+
+          <div class="quick" id="quickActions" hidden>
+            <button class="chip" data-quick="continue">➕ Continua la storia</button>
+            <button class="chip" data-quick="resume" hidden id="resumeBtn">▶️ Riprendi generazione</button>
+          </div>
+
+          <form class="input-row" id="chatForm">
+            <textarea id="chatInput" rows="3" placeholder="Descrivi trama, personaggi e lunghezza… (Invio per inviare, Maiusc+Invio per andare a capo)"></textarea>
+            <div class="input-actions">
+              <button type="button" class="btn danger" id="stopBtn" hidden>■ Stop</button>
+              <button type="submit" class="btn primary" id="sendBtn">Invia</button>
+            </div>
+          </form>
+          <div class="mode-hint" id="modeHint"></div>
+        </div>
+      </section>
+
+      <!-- STORIA -->
+      <section class="view" id="storyView" hidden>
+        <div class="story-toolbar">
+          <div class="stats" id="storyStats"></div>
+          <div class="toolbar-actions">
+            <button class="btn" id="continueBtn">➕ Nuovo capitolo</button>
+            <button class="btn" id="copyAllBtn">📋 Copia tutto</button>
+            <a class="btn" id="exportMd">⬇️ .md</a>
+            <a class="btn" id="exportTxt">⬇️ .txt</a>
+            <button class="btn danger" id="deleteStoryBtn">🗑️</button>
+          </div>
+        </div>
+        <div class="reader" id="reader"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- IMPOSTAZIONI -->
+  <dialog id="settingsDialog">
+    <form method="dialog" class="dialog" id="settingsForm">
+      <h2>Impostazioni del modello AI</h2>
+      <p class="muted">Funziona con qualsiasi API compatibile OpenAI. Il tipo di contenuti che otterrai dipende dalle regole del provider e del modello scelto: per contenuti per adulti usa un provider e un modello che li consentono, oppure un modello locale.</p>
+
+      <label>Provider rapido
+        <select id="presetSelect">
+          <option value="">— scegli un preset —</option>
+          <option value="https://openrouter.ai/api/v1">OpenRouter</option>
+          <option value="http://localhost:11434/v1">Ollama (locale)</option>
+          <option value="http://localhost:1234/v1">LM Studio (locale)</option>
+          <option value="http://localhost:8080/v1">llama.cpp / KoboldCpp (locale)</option>
+          <option value="https://api.openai.com/v1">OpenAI</option>
+          <option value="https://api.deepseek.com/v1">DeepSeek</option>
+          <option value="https://api.mistral.ai/v1">Mistral</option>
+          <option value="https://api.together.xyz/v1">Together AI</option>
+          <option value="https://api.groq.com/openai/v1">Groq</option>
+        </select>
+      </label>
+      <label>URL base dell'API
+        <input type="url" id="setBaseUrl" placeholder="https://openrouter.ai/api/v1" required />
+      </label>
+      <label>Chiave API <span class="muted" id="keyHint"></span>
+        <input type="password" id="setApiKey" placeholder="lascia vuoto per non cambiarla" autocomplete="off" />
+      </label>
+      <label>Modello
+        <div class="row">
+          <input type="text" id="setModel" list="modelList" placeholder="nome del modello" required />
+          <button type="button" class="btn" id="loadModelsBtn">Carica elenco</button>
+        </div>
+        <datalist id="modelList"></datalist>
+      </label>
+      <div class="grid3">
+        <label>Temperatura
+          <input type="number" id="setTemp" min="0" max="2" step="0.05" />
+        </label>
+        <label>Max token per risposta
+          <input type="number" id="setMaxTokens" min="0" step="256" />
+        </label>
+        <label>Parole per capitolo
+          <input type="number" id="setWpc" min="500" step="100" />
+        </label>
+      </div>
+      <div class="test-result" id="testResult"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="testBtn">Prova connessione</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="cancelSettings">Annulla</button>
+        <button type="button" class="btn primary" id="saveSettings">Salva</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- PROMPT GENERICO -->
+  <dialog id="promptDialog">
+    <form method="dialog" class="dialog">
+      <h2 id="promptTitle"></h2>
+      <p class="muted" id="promptText"></p>
+      <textarea id="promptInput" rows="4"></textarea>
+      <div class="dialog-actions">
+        <span class="spacer"></span>
+        <button value="cancel" class="btn ghost">Annulla</button>
+        <button value="ok" class="btn primary" id="promptOk">OK</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" hidden></div>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
