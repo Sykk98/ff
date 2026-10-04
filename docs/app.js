@@ -875,9 +875,16 @@ async function saveSettingsFromForm() {
   if (dialogProvider === 'ollama' && $('#ollamaModel').value) body.ollamaModel = $('#ollamaModel').value;
   const key = $('#setApiKey').value.trim();
   if (key) body.apiKey = key;
+  const appPassword = $('#setAppPassword').value;
+  if (appPassword) body.appPassword = appPassword;
   state.settings = await api('/api/settings', { method: 'POST', body });
   $('#keyHint').textContent = state.settings.apiKeySet ? `(salvata ${state.settings.apiKeyHint})` : '(non impostata)';
   $('#setApiKey').value = '';
+  $('#setAppPassword').value = '';
+  if (backend) {
+    $('#appPasswordHint').textContent = state.settings.appPasswordSet ? '(salvata)' : '(non impostata)';
+    $('#accessLinkBox').hidden = !state.settings.appPasswordSet;
+  }
 }
 
 $('#presetSelect').addEventListener('change', (e) => {
@@ -889,7 +896,13 @@ $('#saveSettings').addEventListener('click', async () => {
     await saveSettingsFromForm();
     if (!state.settings.configured) {
       return setResult(
-        dialogProvider === 'ollama' ? 'Scarica e seleziona un modello prima di salvare.' : 'Inserisci il nome del modello.',
+        dialogProvider === 'ollama'
+          ? 'Scarica e seleziona un modello prima di salvare.'
+          : backend && !$('#autoLogin').hidden
+            ? 'Inserisci la password dell\'app.'
+            : backend
+              ? 'Inserisci la chiave API e il nome del modello.'
+              : 'Inserisci il nome del modello.',
         'err',
       );
     }
@@ -1049,6 +1062,27 @@ async function renderPhonePresets() {
     .join('');
   const sel = backend.presets.find((p) => p.id === current);
   showKeyLink(sel);
+  renderAutoLogin(sel || { needsProxy: (state.settings?.baseUrl || '').startsWith('/api/mistral/') });
+}
+
+/** Mostra la password dell'app al posto della chiave quando la chiave di Mistral è su Cloudflare. */
+async function renderAutoLogin(preset) {
+  const info = await backend.proxyInfo();
+  const active = Boolean(preset?.needsProxy && info?.serverKey);
+  $('#autoLogin').hidden = !active;
+  $('#apiKeyLabel').hidden = active;
+  if (active) $('#keyLink').hidden = true;
+  if (!active) return;
+  const st = $('#autoLoginStatus');
+  if (!info.passwordSet) {
+    st.className = 'warn';
+    st.textContent = '⚠️ La chiave di Mistral è su Cloudflare, ma manca il segreto APP_PASSWORD: aggiungilo nelle impostazioni del progetto su Cloudflare e ripubblica.';
+  } else {
+    st.className = 'ok';
+    st.textContent = '✓ Accesso automatico: la chiave di Mistral è salvata su Cloudflare. Su questo telefono basta la password dell\'app, una volta sola.';
+  }
+  $('#appPasswordHint').textContent = state.settings?.appPasswordSet ? '(salvata)' : '(non impostata)';
+  $('#accessLinkBox').hidden = !state.settings?.appPasswordSet;
 }
 
 function showKeyLink(p) {
@@ -1067,8 +1101,20 @@ $('#phonePresets').addEventListener('click', (e) => {
   $('#setModel').value = p.model;
   $$('#phonePresets .rec').forEach((b) => b.classList.toggle('selected', b === btn));
   showKeyLink(p);
+  renderAutoLogin(p);
   setResult(p.model ? 'Ora incolla la chiave API e premi «Prova connessione».' : 'Incolla la chiave API, poi premi «Carica elenco» e scegli un modello.');
   $('#setApiKey').focus();
+});
+
+$('#copyAccessLink').addEventListener('click', async () => {
+  const link = backend.accessLink();
+  if (!link) return setResult('Salva prima la password dell\'app.', 'err');
+  try {
+    await navigator.clipboard.writeText(link);
+    setResult('✓ Link copiato. Aprilo sull\'altro telefono o browser: l\'app si collegherà da sola.', 'ok');
+  } catch {
+    await askText('Link di accesso', 'Copia questo link e tienilo al sicuro:', link);
+  }
 });
 
 $('#backupExport').addEventListener('click', async () => {

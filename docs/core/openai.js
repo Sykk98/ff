@@ -1,9 +1,13 @@
 // Client in streaming per API compatibili OpenAI /chat/completions.
 // Usa solo fetch e ReadableStream, quindi funziona sia in Node (>= 18) sia nel browser del telefono.
 
+const isMistralProxy = (url) => /^\/api\/mistral\//.test(url);
+
 function buildHeaders(settings) {
   const headers = { 'Content-Type': 'application/json' };
   if (settings.apiKey) headers.Authorization = `Bearer ${settings.apiKey}`;
+  // La password dell'app va solo al ponte per Mistral sullo stesso indirizzo, mai a servizi esterni.
+  if (settings.appPassword && isMistralProxy(settings.baseUrl || '')) headers['X-App-Password'] = settings.appPassword;
   if (/openrouter\.ai/.test(settings.baseUrl || '')) {
     const origin = typeof location !== 'undefined' && location.origin?.startsWith('http') ? location.origin : 'http://localhost';
     headers['HTTP-Referer'] = origin;
@@ -19,8 +23,6 @@ const hostOf = (url) => {
     return url;
   }
 };
-
-const isMistralProxy = (url) => /^\/api\/mistral\//.test(url);
 
 function networkError(url, err) {
   const inBrowser = typeof window !== 'undefined';
@@ -92,7 +94,7 @@ export async function* streamOpenAI(settings, messages, { maxTokens, temperature
       const j = JSON.parse(text);
       detail = j.error?.message || j.message || j.detail || text;
     } catch {}
-    if (res.status === 401) detail = `chiave API non valida o mancante. ${detail}`;
+    if (res.status === 401 && !isMistralProxy(url)) detail = `chiave API non valida o mancante. ${detail}`;
     if (res.status === 429) detail = `limite di richieste raggiunto, riprova più tardi. ${detail}`;
     throw new Error(`Errore dal servizio (${res.status}): ${String(detail).slice(0, 500)}`);
   }
@@ -128,13 +130,16 @@ export async function listOpenAIModels(settings) {
   const url = settings.baseUrl.replace(/\/+$/, '') + '/models';
   let r;
   try {
-    r = await fetch(url, { headers: settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {} });
+    const { 'Content-Type': _, ...headers } = buildHeaders(settings);
+    r = await fetch(url, { headers });
   } catch (err) {
     throw networkError(url, err);
   }
   if (!r.ok) {
-    if (isMistralProxy(url) && !(r.headers.get('content-type') || '').includes('json')) throw new Error(PROXY_MISSING);
-    throw new Error(`Il servizio ha risposto ${r.status}`);
+    const type = r.headers.get('content-type') || '';
+    if (isMistralProxy(url) && !type.includes('json')) throw new Error(PROXY_MISSING);
+    const j = type.includes('json') ? await r.json().catch(() => ({})) : {};
+    throw new Error(j.error?.message || j.message || `Il servizio ha risposto ${r.status}`);
   }
   const j = await r.json();
   return (j.data || j.models || []).map((m) => m.id || m.name).filter(Boolean).sort();

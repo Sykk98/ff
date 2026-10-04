@@ -49,6 +49,7 @@ const DEFAULTS = {
   baseUrl: PHONE_PRESETS[0].baseUrl,
   model: PHONE_PRESETS[0].model,
   apiKey: '',
+  appPassword: '', // password dell'app per l'accesso automatico a Mistral tramite il ponte
   temperature: 0.9,
   topP: 0,
   maxTokens: 6000,
@@ -74,14 +75,24 @@ function writeSettings(s) {
   }
 }
 
-function publicSettings(s) {
-  const { apiKey, ...rest } = s;
+const isProxyUrl = (u) => /^\/api\/mistral\//.test(u || '');
+
+function publicSettings(s, proxy) {
+  const { apiKey, appPassword, ...rest } = s;
+  // accesso automatico: chiave su Cloudflare + password dell'app salvata sul telefono
+  const autoLogin = Boolean(isProxyUrl(s.baseUrl) && proxy?.serverKey && appPassword);
   return {
     ...rest,
     apiKeySet: Boolean(apiKey),
     apiKeyHint: apiKey ? `…${apiKey.slice(-4)}` : '',
+    appPasswordSet: Boolean(appPassword),
+    serverKey: Boolean(proxy?.serverKey),
+    serverPasswordSet: Boolean(proxy?.passwordSet),
+    autoLogin,
     // i servizi online richiedono una chiave; un server sulla rete di casa può non averla
-    configured: Boolean(s.model && s.baseUrl && (apiKey || /^http:\/\/(localhost|127\.|192\.168\.|10\.)/.test(s.baseUrl))),
+    configured: Boolean(
+      s.model && s.baseUrl && (apiKey || autoLogin || /^http:\/\/(localhost|127\.|192\.168\.|10\.)/.test(s.baseUrl)),
+    ),
     preset: PHONE_PRESETS.find((p) => p.baseUrl === s.baseUrl && p.model === s.model)?.id || '',
     activeModel: s.model,
     local: true,
@@ -173,7 +184,36 @@ const abortError = () => {
 
 // ---------- backend ----------
 
+let proxyCheck = null;
+/** Stato del ponte per Mistral su questo indirizzo (versione su Cloudflare Pages), o null se manca. */
+function proxyInfo() {
+  proxyCheck ??= fetch('/api/mistral/health', { cache: 'no-store' })
+    .then(async (r) => {
+      const j = r.ok ? await r.json().catch(() => null) : null;
+      return j?.service === 'mistral-proxy' ? j : null;
+    })
+    .catch(() => null);
+  return proxyCheck;
+}
+
+/** Accesso da link: #accesso=PASSWORD salva la password, sceglie Mistral e pulisce l'indirizzo. */
+function consumeAccessLink() {
+  const m = /[#&]accesso=([^&]+)/.exec(location.hash || '');
+  if (!m) return;
+  const s = readSettings();
+  s.appPassword = decodeURIComponent(m[1]);
+  if (!isProxyUrl(s.baseUrl)) {
+    s.baseUrl = PHONE_PRESETS[0].baseUrl;
+    s.model = PHONE_PRESETS[0].model;
+  }
+  try {
+    writeSettings(s);
+  } catch {}
+  history.replaceState(null, '', location.pathname + location.search);
+}
+
 export function createLocalBackend() {
+  consumeAccessLink();
   const db = createStoryDb();
   const running = new Map(); // storyId -> AbortController
 
@@ -196,12 +236,12 @@ export function createLocalBackend() {
     const parts = url.pathname.split('/').filter(Boolean).slice(1);
 
     if (parts[0] === 'settings') {
-      if (parts.length === 1 && method === 'GET') return publicSettings(readSettings());
+      if (parts.length === 1 && method === 'GET') return publicSettings(readSettings(), await proxyInfo());
       if (parts.length === 1 && method === 'POST') {
         const s = readSettings();
         for (const key of Object.keys(DEFAULTS)) {
           if (!(key in body) || key === 'provider') continue;
-          if (key === 'apiKey' && (body.apiKey === undefined || body.apiKey === null)) continue;
+          if ((key === 'apiKey' || key === 'appPassword') && (body[key] === undefined || body[key] === null)) continue;
           let v = body[key];
           if (NUMERIC.includes(key)) {
             v = Number(v);
@@ -209,8 +249,9 @@ export function createLocalBackend() {
           } else v = String(v ?? '').trim();
           s[key] = v;
         }
+        if (body.clearApiKey) s.apiKey = '';
         writeSettings(s);
-        return publicSettings(s);
+        return publicSettings(s, await proxyInfo());
       }
       if (parts[1] === 'test' && method === 'POST') {
         const started = Date.now();
@@ -309,20 +350,20 @@ export function createLocalBackend() {
     }
   }
 
-  let proxyCheck = null;
-  /** true se su questo indirizzo c'è il ponte per Mistral (versione su Cloudflare Pages). */
-  function mistralProxyAvailable() {
-    proxyCheck ??= fetch('/api/mistral/health', { cache: 'no-store' })
-      .then(async (r) => r.ok && (await r.json().catch(() => ({}))).service === 'mistral-proxy')
-      .catch(() => false);
-    return proxyCheck;
+  /** Link che configura l'accesso automatico su un altro browser o telefono. */
+  function accessLink() {
+    const pw = readSettings().appPassword;
+    if (!pw) return '';
+    return `${location.origin}${location.pathname}#accesso=${encodeURIComponent(pw)}`;
   }
 
   return {
     api,
     streamApi,
     presets: PHONE_PRESETS,
-    mistralProxyAvailable,
+    mistralProxyAvailable: async () => Boolean(await proxyInfo()),
+    proxyInfo,
+    accessLink,
     get persistent() {
       return db.persistent;
     },

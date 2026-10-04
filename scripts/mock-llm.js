@@ -46,6 +46,7 @@ function reply(messages) {
 
 const installed = new Set(['mock-nemo:latest']);
 let lastOllamaRequest = null;
+let lastOpenAIAuth = null;
 
 async function readJson(req) {
   let body = '';
@@ -103,6 +104,10 @@ async function handleOllama(req, res) {
 
 http
   .createServer(async (req, res) => {
+    if (req.url === '/__last-openai-auth') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ authorization: lastOpenAIAuth }));
+    }
     if (req.url === '/__last-ollama') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify(lastOllamaRequest));
@@ -116,6 +121,7 @@ http
       res.writeHead(404);
       return res.end();
     }
+    lastOpenAIAuth = req.headers.authorization || null;
     let body = '';
     for await (const c of req) body += c;
     const { messages } = JSON.parse(body);

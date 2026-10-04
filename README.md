@@ -20,7 +20,7 @@ Scrivi nella chat trama, personaggi e lunghezza: l'AI prepara una scaletta e scr
 
 L'app funziona anche solo dal telefono, senza computer e senza installare niente. L'AI lavora online con **Mistral** e le storie restano salvate nel browser del telefono.
 
-Mistral non accetta richieste dirette da una pagina web. Per questo la versione per telefono si pubblica su **Cloudflare Pages**, gratis: oltre all'app ospita un piccolo ponte (`functions/api/mistral`) che inoltra le richieste a Mistral. Il ponte inoltra solo verso Mistral, accetta solo richieste dall'app e non conserva la chiave, che resta sul telefono.
+Mistral non accetta richieste dirette da una pagina web. Per questo la versione per telefono si pubblica su **Cloudflare Pages**, gratis: oltre all'app ospita un piccolo ponte (`functions/api/mistral`) che inoltra le richieste a Mistral. Il ponte inoltra solo verso Mistral e accetta solo richieste dall'app. La chiave può stare sul telefono oppure, per l'accesso automatico, nei segreti di Cloudflare.
 
 ### 1. Pubblicare l'app su Cloudflare Pages (una volta sola, dal telefono)
 
@@ -42,11 +42,25 @@ Ogni volta che il branch su GitHub cambia, Cloudflare ripubblica l'app da solo.
 2. Attiva il piano gratuito **Experiment**. Mistral chiede di verificare il numero di telefono e di accettare che i testi possano essere usati per addestrare i suoi modelli.
 3. In **API Keys** crea una nuova chiave e copiala.
 
-### 3. Usare l'app
+### 3. Accesso automatico a Mistral (consigliato)
 
-1. Apri l'indirizzo `pages.dev` sul telefono. Nelle Impostazioni è già scelto **Mistral Large**.
-2. Incolla la chiave, premi «Prova connessione» e poi Salva.
-3. Dal menu del browser scegli «Aggiungi a schermata Home» per aprirla come un'app.
+Invece di incollare la chiave nell'app, salvala una volta su Cloudflare: il ponte la aggiunge da solo a ogni richiesta.
+
+1. Nel progetto su Cloudflare apri **Settings → Variables and Secrets** e aggiungi due variabili di tipo **Secret**:
+   - `MISTRAL_API_KEY`: la chiave di Mistral;
+   - `APP_PASSWORD`: una password a tua scelta.
+2. Apri **Deployments** e ripubblica l'ultima versione (**Retry deployment**), perché i segreti valgono dalla pubblicazione successiva.
+3. Apri sul telefono `https://TUO-INDIRIZZO.pages.dev/#accesso=LA-TUA-PASSWORD`. L'app salva la password, cancella il link dalla barra degli indirizzi ed è subito collegata.
+
+La password serve perché l'indirizzo `pages.dev` è pubblico: senza, chiunque lo trovi userebbe il tuo account Mistral. Senza `APP_PASSWORD` il ponte rifiuta l'accesso automatico. In alternativa al link puoi scrivere la password nelle Impostazioni, una volta sola. Il pulsante «Copia link di accesso» crea il link per un altro telefono o browser.
+
+Se preferisci, puoi saltare questo passo e incollare la chiave direttamente nelle Impostazioni dell'app.
+
+### 4. Usare l'app
+
+1. Apri l'indirizzo `pages.dev` sul telefono. È già scelto **Mistral Large**.
+2. Se non hai usato il link di accesso, inserisci la password dell'app oppure la chiave, premi «Prova connessione» e poi Salva.
+3. Dal menu del browser scegli «Aggiungi a schermata Home» per aprirla come un'app. Su iPhone l'icona sulla schermata Home ha una memoria separata da Safari: la prima volta che la apri inserisci di nuovo la password nelle Impostazioni.
 
 ### Da sapere
 
@@ -54,7 +68,7 @@ Ogni volta che il branch su GitHub cambia, Cloudflare ripubblica l'app da solo.
 - **Alternative nella stessa finestra:** Mistral Small, più veloce, e OpenRouter, che funziona anche senza ponte. Il modello gratuito Venice Uncensored di OpenRouter non ha filtri, ma ha un limite di 50 richieste al giorno.
 - **Le storie** sono salvate solo nel browser del telefono. Usa ogni tanto «Scarica backup» nelle Impostazioni.
 - **GitHub Pages** può ospitare l'app, ma senza ponte: lì funziona solo OpenRouter.
-- **Provarla sul computer:** `npm run dev:phone` emula Cloudflare Pages in locale. Con `MISTRAL_UPSTREAM=http://localhost:3999` e `npm run mock` usa il finto provider.
+- **Provarla sul computer:** `npm run dev:phone` emula Cloudflare Pages in locale. Con `MISTRAL_UPSTREAM=http://localhost:3999` e `npm run mock` usa il finto provider. Aggiungi `MISTRAL_API_KEY` e `APP_PASSWORD` per provare l'accesso automatico.
 
 ## Requisiti
 

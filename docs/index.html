@@ -184,8 +184,18 @@
       <!-- SERVIZIO ONLINE -->
       <div id="openaiSection" hidden>
         <div class="phone-only phone-intro">
-          <p class="muted">Versione per telefono: l'AI lavora online. Scegli un servizio, crea una chiave API gratuita e incollala qui sotto. I contenuti ammessi dipendono dalle regole del servizio e del modello.</p>
+          <p class="muted">Versione per telefono: l'AI lavora online. Scegli un servizio e collegalo con la sua chiave API, oppure con la password dell'app se la chiave di Mistral è già salvata su Cloudflare. I contenuti ammessi dipendono dalle regole del servizio e del modello.</p>
           <div class="recommended" id="phonePresets"></div>
+          <div class="auto-login" id="autoLogin" hidden>
+            <div id="autoLoginStatus"></div>
+            <label>Password dell'app <span class="muted" id="appPasswordHint"></span>
+              <input type="password" id="setAppPassword" placeholder="la password scelta su Cloudflare" autocomplete="current-password" />
+            </label>
+            <div class="access-link" id="accessLinkBox">
+              <button type="button" class="btn" id="copyAccessLink">🔗 Copia link di accesso</button>
+              <span class="muted">Il link apre l'app già collegata su un altro telefono o browser. Non condividerlo: contiene la password.</span>
+            </div>
+          </div>
         </div>
         <p class="muted server-only">Qualsiasi API compatibile OpenAI. I contenuti ammessi dipendono dalle regole del servizio e del modello scelto.</p>
         <label class="server-only">Servizio
@@ -204,7 +214,7 @@
         <label>URL base dell'API
           <input type="url" id="setBaseUrl" placeholder="https://openrouter.ai/api/v1" />
         </label>
-        <label>Chiave API <span class="muted" id="keyHint"></span>
+        <label id="apiKeyLabel">Chiave API <span class="muted" id="keyHint"></span>
           <input type="password" id="setApiKey" placeholder="lascia vuoto per non cambiarla" autocomplete="off" />
           <a id="keyLink" class="key-link" target="_blank" rel="noopener" hidden></a>
         </label>

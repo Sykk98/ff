@@ -226,3 +226,7 @@ dialog { max-height: calc(100dvh - 32px); }
 .key-link { color: var(--accent2); font-size: 13px; margin-top: 4px; }
 .file-btn { flex-direction: row !important; color: var(--text) !important; font-size: 15px !important; }
 .rec:disabled:not(.installed) { opacity: .5; cursor: not-allowed; }
+.auto-login { display: flex; flex-direction: column; gap: 8px; background: var(--bg3); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.auto-login .ok { color: var(--ok); }
+.auto-login .warn { color: #ffb36b; }
+.access-link { display: flex; flex-direction: column; gap: 6px; }

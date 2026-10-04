@@ -119,6 +119,30 @@ try {
   const models = await (await call('v1/models', { headers: auth })).json();
   assert.ok(models.data.some((m) => m.id === 'mock'));
 
+  // accesso automatico: chiave su Cloudflare protetta dalla password dell'app
+  const callEnv = (envX, p, init = {}) =>
+    onRequest({ request: new Request('https://app.pages.dev/api/mistral/' + p, init), params: { path: p.split('/') }, env: envX });
+  const auto = { MISTRAL_UPSTREAM: 'http://localhost:3998', MISTRAL_API_KEY: 'server-key', APP_PASSWORD: 'segreta' };
+  const health = await (await callEnv(auto, 'health')).json();
+  assert.equal(health.serverKey, true);
+  assert.equal(health.passwordSet, true);
+  assert.ok(!JSON.stringify(health).includes('server-key'), 'la chiave non deve mai uscire dal ponte');
+  const post = (envX, headers) => callEnv(envX, 'v1/chat/completions', { method: 'POST', body: chatBody, headers: { 'Content-Type': 'application/json', ...headers } });
+  assert.equal((await post(auto, {})).status, 401, 'senza password');
+  const wrong = await post(auto, { 'X-App-Password': 'sbagliata' });
+  assert.equal(wrong.status, 401);
+  assert.equal((await wrong.json()).error.code, 'bad_password');
+  const right = await post(auto, { 'X-App-Password': 'segreta' });
+  assert.equal(right.status, 200);
+  await right.text();
+  const seenAuth = await (await fetch('http://localhost:3998/__last-openai-auth')).json();
+  assert.equal(seenAuth.authorization, 'Bearer server-key', 'il ponte deve usare la chiave salvata su Cloudflare');
+  const noPw = await post({ ...auto, APP_PASSWORD: '' }, {});
+  assert.equal(noPw.status, 503, 'senza APP_PASSWORD su Cloudflare l\'accesso automatico resta spento');
+  const ownKey = await post(auto, { Authorization: 'Bearer chiave-del-telefono' });
+  assert.equal(ownKey.status, 200, 'una chiave inviata dal telefono continua a funzionare');
+  await ownKey.text();
+
   console.log('\n✅ Tutti i test superati');
 } catch (err) {
   console.error('\n❌ Test fallito:', err);

@@ -1,6 +1,7 @@
 // Emula in locale la versione pubblicata su Cloudflare Pages: file statici di docs/
 // più la funzione functions/api/mistral, senza il server Node dell'app.
-// Uso: npm run dev:phone   (MISTRAL_UPSTREAM=http://localhost:3999 per usare il finto provider)
+// Uso: npm run dev:phone   (MISTRAL_UPSTREAM=http://localhost:3999 per usare il finto provider;
+//      MISTRAL_API_KEY e APP_PASSWORD per provare l'accesso automatico)
 import http from 'node:http';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -24,7 +25,7 @@ http
         body: ['GET', 'HEAD'].includes(req.method) ? undefined : Buffer.concat(chunks),
       });
       const params = { path: url.pathname.slice('/api/mistral/'.length).split('/') };
-      const response = await onRequest({ request, params, env: { MISTRAL_UPSTREAM: process.env.MISTRAL_UPSTREAM } });
+      const response = await onRequest({ request, params, env: { MISTRAL_UPSTREAM: process.env.MISTRAL_UPSTREAM, MISTRAL_API_KEY: process.env.MISTRAL_API_KEY, APP_PASSWORD: process.env.APP_PASSWORD } });
       res.writeHead(response.status, Object.fromEntries(response.headers));
       if (response.body) for await (const chunk of response.body) res.write(chunk);
       return res.end();
