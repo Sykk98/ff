@@ -4,6 +4,39 @@
 // - senza server (telefono, GitHub Pages): le stesse richieste sono gestite da local-backend.js nel browser.
 import { exportStory, safeFileName } from './core/text.js';
 
+export const APP_VERSION = '2026-10-04.4';
+
+// Nessun errore deve passare in silenzio: mostralo all'utente.
+window.addEventListener('error', (e) => toastError(e.message));
+window.addEventListener('unhandledrejection', (e) => toastError(e.reason?.message || String(e.reason)));
+function toastError(msg) {
+  if (!msg || /ResizeObserver/.test(msg)) return;
+  try {
+    toast('⚠️ Errore: ' + msg, 8000);
+  } catch {}
+}
+
+// localStorage può essere bloccato (navigazione privata, impostazioni del browser).
+const local = {
+  get: (k) => {
+    try {
+      return localStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  },
+  set: (k, v) => {
+    try {
+      localStorage.setItem(k, v);
+    } catch {}
+  },
+  remove: (k) => {
+    try {
+      localStorage.removeItem(k);
+    } catch {}
+  },
+};
+
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
@@ -227,7 +260,7 @@ $('#storyList').addEventListener('click', (e) => {
 async function openStory(id) {
   state.story = await api(`/api/stories/${id}`);
   state.editing = null;
-  localStorage.setItem('lastStory', id);
+  local.set('lastStory', id);
   renderAll();
 }
 
@@ -235,7 +268,7 @@ function newStory() {
   if (state.busy) return toast('Attendi la fine della generazione o premi Stop.');
   state.story = null;
   state.editing = null;
-  localStorage.removeItem('lastStory');
+  local.remove('lastStory');
   applyOptions({});
   $('#optionsPanel').open = window.innerWidth > 760;
   switchTab('chat');
@@ -646,7 +679,11 @@ async function runChat(message) {
 
 async function send() {
   const text = $('#chatInput').value.trim();
-  if (!text || state.busy) return;
+  if (state.busy) return toast('Sto ancora scrivendo: attendi oppure premi Stop.');
+  if (!text) {
+    $('#chatInput').focus();
+    return toast('Scrivi prima cosa vuoi nella casella in basso.');
+  }
   if (!(await ensureConfigured())) return;
   $('#chatInput').value = '';
 
@@ -661,7 +698,7 @@ async function send() {
           method: 'POST',
           body: { title: typedTitle || 'Nuova storia', brief: typedTitle ? { ...brief, title: typedTitle } : brief },
         });
-        localStorage.setItem('lastStory', state.story.id);
+        local.set('lastStory', state.story.id);
       } else {
         // storia vuota (es. generazione fallita): ricomincia con la nuova richiesta
         state.story = await api(`/api/stories/${s.id}`, {
@@ -954,8 +991,17 @@ $('#chatForm').addEventListener('submit', (e) => {
   e.preventDefault();
   send();
 });
+let shiftDown = false;
 $('#chatInput').addEventListener('keydown', (e) => {
+  shiftDown = e.shiftKey;
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    send();
+  }
+});
+// Molte tastiere Android non inviano il tasto Invio come "keydown": lo intercetto quando sta per andare a capo.
+$('#chatInput').addEventListener('beforeinput', (e) => {
+  if (e.inputType === 'insertLineBreak' && !shiftDown) {
     e.preventDefault();
     send();
   }
@@ -1144,17 +1190,24 @@ $('#backupImport').addEventListener('change', async (e) => {
 // ---------- avvio ----------
 
 (async function init() {
-  await detectBackend();
+  $('#appVersion').textContent = `versione ${APP_VERSION}`;
   try {
-    await Promise.all([loadSettings(), loadStories()]);
+    await detectBackend();
+    try {
+      await Promise.all([loadSettings(), loadStories()]);
+    } catch (e) {
+      toast((backend ? 'Errore di avvio: ' : 'Impossibile contattare il server: ') + e.message, 8000);
+    }
+    const last = local.get('lastStory');
+    if (last && state.stories.some((s) => s.id === last)) {
+      await openStory(last).catch(() => newStory());
+    } else {
+      newStory();
+    }
+    if (!state.settings?.configured) openSettings();
   } catch (e) {
-    toast('Impossibile contattare il server: ' + e.message, 8000);
+    toast('⚠️ Errore di avvio: ' + e.message, 10000);
+  } finally {
+    window.__fanficReady = true;
   }
-  const last = localStorage.getItem('lastStory');
-  if (last && state.stories.some((s) => s.id === last)) {
-    await openStory(last).catch(() => newStory());
-  } else {
-    newStory();
-  }
-  if (!state.settings?.configured) openSettings();
 })();

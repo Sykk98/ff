@@ -101,7 +101,7 @@
           </div>
 
           <form class="input-row" id="chatForm">
-            <textarea id="chatInput" rows="3" placeholder="Descrivi trama, personaggi e lunghezza… (Invio per inviare, Maiusc+Invio per andare a capo)"></textarea>
+            <textarea id="chatInput" rows="3" enterkeyhint="send" placeholder="Descrivi trama, personaggi e lunghezza… (Invio per inviare, Maiusc+Invio per andare a capo)"></textarea>
             <div class="input-actions">
               <button type="button" class="btn danger" id="stopBtn" hidden>■ Stop</button>
               <button type="submit" class="btn primary" id="sendBtn">Invia</button>
@@ -247,6 +247,7 @@
         </div>
       </details>
       <div class="test-result" id="testResult"></div>
+      <div class="muted app-version" id="appVersion"></div>
       <div class="dialog-actions">
         <button type="button" class="btn" id="testBtn">Prova connessione</button>
         <span class="spacer"></span>
@@ -271,6 +272,20 @@
   </dialog>
 
   <div class="toast" id="toast" hidden></div>
+  <div class="boot-error" id="bootError" hidden></div>
+  <script>
+    // Se l'app non parte entro pochi secondi (file non aggiornati, browser troppo vecchio,
+    // errore di caricamento), mostra un messaggio invece di una pagina che non risponde.
+    window.__bootErrors = [];
+    window.addEventListener('error', function (e) { window.__bootErrors.push(e.message || (e.target && e.target.src) || 'errore'); }, true);
+    setTimeout(function () {
+      if (window.__fanficReady) return;
+      var box = document.getElementById('bootError');
+      box.hidden = false;
+      box.innerHTML = '<strong>L\'app non si è avviata.</strong><br>Ricarica la pagina. Se il problema resta, aggiorna il browser o manda questo messaggio a chi ti aiuta:<br><code></code>';
+      box.querySelector('code').textContent = (window.__bootErrors.join(' | ') || 'nessun dettaglio') + ' · ' + navigator.userAgent;
+    }, 8000);
+  </script>
   <script src="app.js" type="module"></script>
 </body>
 </html>
