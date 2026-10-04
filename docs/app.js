@@ -22,8 +22,8 @@ const state = {
 let backend = null; // null = server Node; altrimenti backend locale nel browser
 
 async function detectBackend() {
-  // Su GitHub Pages non c'è mai un server: evita una richiesta inutile.
-  const staticHost = /\.github\.io$/.test(location.hostname) || !location.protocol.startsWith('http');
+  // Su GitHub Pages e Cloudflare non c'è mai il server Node: evita una richiesta inutile.
+  const staticHost = /\.(github\.io|pages\.dev|workers\.dev)$/.test(location.hostname) || !location.protocol.startsWith('http');
   if (!staticHost) {
     try {
       const r = await fetch('/api/settings', { cache: 'no-store' });
@@ -1054,7 +1054,7 @@ async function renderPhonePresets() {
       const off = p.needsProxy && !proxy;
       return `<button type="button" class="rec ${current === p.id ? 'selected' : ''}" data-preset="${p.id}" ${off ? 'disabled' : ''}>
         <span><span class="rec-name">${escapeHtml(p.label)}</span><br><span class="rec-note">${escapeHtml(
-          off ? 'non disponibile a questo indirizzo: apri l\'app dalla versione su Cloudflare Pages' : p.badge,
+          off ? 'non disponibile a questo indirizzo: apri l\'app dalla versione pubblicata su Cloudflare' : p.badge,
         )}</span></span>
         <span class="rec-meta">${current === p.id ? '✓ in uso' : 'Scegli'}</span>
       </button>`;

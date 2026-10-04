@@ -20,21 +20,20 @@ Scrivi nella chat trama, personaggi e lunghezza: l'AI prepara una scaletta e scr
 
 L'app funziona anche solo dal telefono, senza computer e senza installare niente. L'AI lavora online con **Mistral** e le storie restano salvate nel browser del telefono.
 
-Mistral non accetta richieste dirette da una pagina web. Per questo la versione per telefono si pubblica su **Cloudflare Pages**, gratis: oltre all'app ospita un piccolo ponte (`functions/api/mistral`) che inoltra le richieste a Mistral. Il ponte inoltra solo verso Mistral e accetta solo richieste dall'app. La chiave può stare sul telefono oppure, per l'accesso automatico, nei segreti di Cloudflare.
+Mistral non accetta richieste dirette da una pagina web. Per questo la versione per telefono si pubblica su **Cloudflare**, gratis, come Worker o come progetto Pages: oltre all'app ospita un piccolo ponte che inoltra le richieste a Mistral. Il ponte inoltra solo verso Mistral e accetta solo richieste dall'app. La chiave può stare sul telefono oppure, per l'accesso automatico, nei segreti di Cloudflare.
 
-### 1. Pubblicare l'app su Cloudflare Pages (una volta sola, dal telefono)
+### 1. Pubblicare l'app su Cloudflare (una volta sola, dal telefono)
+
+**Come Worker (consigliato).** Il repository contiene `wrangler.jsonc`, che Cloudflare legge da solo.
 
 1. Crea un account gratuito su [dash.cloudflare.com](https://dash.cloudflare.com).
-2. Apri **Workers & Pages**, premi **Create** e scegli la scheda **Pages**, poi **Connect to Git**.
-3. Collega il tuo account GitHub e scegli il repository `ff`.
-4. Imposta:
-   - **Production branch:** il branch con la cartella `docs` (per esempio `main`);
-   - **Framework preset:** None;
-   - **Build command:** lascia vuoto;
-   - **Build output directory:** `docs`.
-5. Premi **Save and Deploy**. Dopo un minuto l'app è online su un indirizzo come `https://ff-xxx.pages.dev`.
+2. Apri **Workers & Pages**, premi **Create** e scegli di importare un repository da GitHub.
+3. Collega GitHub, scegli il repository `ff` e lascia le impostazioni proposte (comando di pubblicazione `npx wrangler deploy`).
+4. Premi **Deploy**. L'app è online su `https://ff.TUO-ACCOUNT.workers.dev`. Lo trovi anche nel progetto, alla voce **Domains & Routes** o con il pulsante **Visit**.
 
 Ogni volta che il branch su GitHub cambia, Cloudflare ripubblica l'app da solo.
+
+**Come progetto Pages (alternativa).** In **Workers & Pages** → **Create** scegli la scheda **Pages** → **Connect to Git**, poi imposta Framework preset `None`, Build command vuoto e Build output directory `docs`. Il ponte in questo caso è `functions/api/mistral`.
 
 ### 2. Creare la chiave di Mistral
 
@@ -46,19 +45,19 @@ Ogni volta che il branch su GitHub cambia, Cloudflare ripubblica l'app da solo.
 
 Invece di incollare la chiave nell'app, salvala una volta su Cloudflare: il ponte la aggiunge da solo a ogni richiesta.
 
-1. Nel progetto su Cloudflare apri **Settings → Variables and Secrets** e aggiungi due variabili di tipo **Secret**:
+1. Nel progetto su Cloudflare apri **Settings → Variables and Secrets** e aggiungi due variabili di tipo **Secret**. Usa proprio «Secret» e non «Text»: le variabili di tipo testo vengono cancellate a ogni nuova pubblicazione.
    - `MISTRAL_API_KEY`: la chiave di Mistral;
    - `APP_PASSWORD`: una password a tua scelta.
-2. Apri **Deployments** e ripubblica l'ultima versione (**Retry deployment**), perché i segreti valgono dalla pubblicazione successiva.
-3. Apri sul telefono `https://TUO-INDIRIZZO.pages.dev/#accesso=LA-TUA-PASSWORD`. L'app salva la password, cancella il link dalla barra degli indirizzi ed è subito collegata.
+2. Su un Worker i segreti si attivano appena li salvi. Su un progetto Pages invece apri **Deployments** e ripubblica l'ultima versione (**Retry deployment**).
+3. Apri sul telefono `https://TUO-INDIRIZZO/#accesso=LA-TUA-PASSWORD`, per esempio `https://ff.TUO-ACCOUNT.workers.dev/#accesso=...`. L'app salva la password, cancella il link dalla barra degli indirizzi ed è subito collegata.
 
-La password serve perché l'indirizzo `pages.dev` è pubblico: senza, chiunque lo trovi userebbe il tuo account Mistral. Senza `APP_PASSWORD` il ponte rifiuta l'accesso automatico. In alternativa al link puoi scrivere la password nelle Impostazioni, una volta sola. Il pulsante «Copia link di accesso» crea il link per un altro telefono o browser.
+La password serve perché l'indirizzo dell'app è pubblico: senza, chiunque lo trovi userebbe il tuo account Mistral. Senza `APP_PASSWORD` il ponte rifiuta l'accesso automatico. In alternativa al link puoi scrivere la password nelle Impostazioni, una volta sola. Il pulsante «Copia link di accesso» crea il link per un altro telefono o browser.
 
 Se preferisci, puoi saltare questo passo e incollare la chiave direttamente nelle Impostazioni dell'app.
 
 ### 4. Usare l'app
 
-1. Apri l'indirizzo `pages.dev` sul telefono. È già scelto **Mistral Large**.
+1. Apri l'indirizzo dell'app sul telefono. È già scelto **Mistral Large**.
 2. Se non hai usato il link di accesso, inserisci la password dell'app oppure la chiave, premi «Prova connessione» e poi Salva.
 3. Dal menu del browser scegli «Aggiungi a schermata Home» per aprirla come un'app. Su iPhone l'icona sulla schermata Home ha una memoria separata da Safari: la prima volta che la apri inserisci di nuovo la password nelle Impostazioni.
 
@@ -152,7 +151,9 @@ lib/store.js       salvataggio di storie e impostazioni in data/
 docs/              interfaccia web, pubblicata anche come versione per telefono
 docs/core/         motore condiviso tra server e telefono: prompt, scaletta, capitoli, chat
 docs/local-backend.js  versione per telefono: storie nel browser, AI chiamata direttamente
-functions/api/mistral/ ponte per Mistral su Cloudflare Pages (Mistral non accetta richieste dal browser)
+functions/api/mistral/ ponte per Mistral (Mistral non accetta richieste dal browser)
+worker/index.js        Worker di Cloudflare: serve docs/ e usa lo stesso ponte
+wrangler.jsonc         configurazione del Worker letta da Cloudflare a ogni pubblicazione
 scripts/pages-dev.js   emulazione locale di Cloudflare Pages
 scripts/           finto provider e test end-to-end
 ```

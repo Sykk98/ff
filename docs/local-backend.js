@@ -12,7 +12,7 @@ export const PHONE_PRESETS = [
     id: 'mistral',
     label: 'Mistral Large',
     badge: 'consigliato · piano gratuito · ottimo italiano',
-    baseUrl: '/api/mistral/v1', // ponte sullo stesso indirizzo dell'app (functions/api/mistral)
+    baseUrl: '/api/mistral/v1', // ponte sullo stesso indirizzo dell'app (worker/ o functions/api/mistral)
     model: 'mistral-large-latest',
     keyUrl: 'https://console.mistral.ai/api-keys',
     needsProxy: true,
@@ -185,7 +185,7 @@ const abortError = () => {
 // ---------- backend ----------
 
 let proxyCheck = null;
-/** Stato del ponte per Mistral su questo indirizzo (versione su Cloudflare Pages), o null se manca. */
+/** Stato del ponte per Mistral su questo indirizzo (versione su Cloudflare), o null se manca. */
 function proxyInfo() {
   proxyCheck ??= fetch('/api/mistral/health', { cache: 'no-store' })
     .then(async (r) => {

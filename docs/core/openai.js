@@ -122,7 +122,7 @@ export async function* streamOpenAI(settings, messages, { maxTokens, temperature
 }
 
 export const PROXY_MISSING =
-  'Mistral non è disponibile a questo indirizzo: serve la versione dell\'app pubblicata su Cloudflare Pages, che contiene il ponte per Mistral. ' +
+  'Mistral non è disponibile a questo indirizzo: serve la versione dell\'app pubblicata su Cloudflare (Worker o Pages), che contiene il ponte per Mistral. ' +
   'Qui puoi usare OpenRouter.';
 
 /** Elenco dei modelli disponibili sul servizio. */

@@ -143,6 +143,18 @@ try {
   assert.equal(ownKey.status, 200, 'una chiave inviata dal telefono continua a funzionare');
   await ownKey.text();
 
+  // Worker di Cloudflare (worker/index.js): smista tra ponte, API inesistenti e file dell'app
+  const worker = (await import('../worker/index.js')).default;
+  const assets = { fetch: async (req) => new Response('asset:' + new URL(req.url).pathname) };
+  const wenv = { ...auto, ASSETS: assets };
+  const wfetch = (p, init) => worker.fetch(new Request('https://ff.example.workers.dev' + p, init), wenv);
+  assert.equal((await (await wfetch('/api/mistral/health')).json()).service, 'mistral-proxy');
+  assert.equal((await wfetch('/api/settings')).status, 404, 'nessun server Node: l\'app deve passare alla modalità telefono');
+  assert.equal(await (await wfetch('/core/engine.js')).text(), 'asset:/core/engine.js');
+  const wchat = await wfetch('/api/mistral/v1/chat/completions', { method: 'POST', body: chatBody, headers: { 'Content-Type': 'application/json', 'X-App-Password': 'segreta' } });
+  assert.equal(wchat.status, 200);
+  assert.ok((await wchat.text()).includes('[DONE]'));
+
   console.log('\n✅ Tutti i test superati');
 } catch (err) {
   console.error('\n❌ Test fallito:', err);
