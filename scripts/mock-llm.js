@@ -73,6 +73,7 @@ function reply(messages) {
 const installed = new Set(['mock-nemo:latest']);
 let lastOllamaRequest = null;
 let lastOpenAIAuth = null;
+let rateLimitLeft = Number(process.env.MOCK_429 || 0); // simula il limite di richieste del piano gratuito
 
 async function readJson(req) {
   let body = '';
@@ -146,6 +147,11 @@ http
     if (!req.url.endsWith('/chat/completions')) {
       res.writeHead(404);
       return res.end();
+    }
+    if (rateLimitLeft > 0) {
+      rateLimitLeft--;
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' });
+      return res.end(JSON.stringify({ object: 'error', message: 'Requests rate limit exceeded' }));
     }
     lastOpenAIAuth = req.headers.authorization || null;
     let body = '';

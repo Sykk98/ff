@@ -130,18 +130,22 @@ export function createEngine({ streamChat, saveStory }) {
   async function complete(settings, messages, opts = {}) {
     let text = '';
     let finishReason = null;
-    for await (const part of streamChat(settings, messages, opts)) {
+    const { emit, ...rest } = opts;
+    for await (const part of streamChat(settings, messages, { onWait: waitNotice(emit), ...rest })) {
       if (part.text) text += part.text;
       if (part.finishReason !== undefined) finishReason = part.finishReason;
     }
     return { text, finishReason };
   }
 
+const waitNotice = (emit) => (seconds) =>
+  emit?.({ type: 'status', message: `Il servizio AI ha raggiunto il limite di richieste del piano gratuito: riprovo tra ${seconds} secondi…` });
+
 async function streamInto(settings, messages, opts, emit, signal) {
   const filter = makeThinkFilter();
   let text = '';
   let finishReason = null;
-  for await (const part of streamChat(settings, messages, { ...opts, signal })) {
+  for await (const part of streamChat(settings, messages, { onWait: waitNotice(emit), ...opts, signal })) {
     if (part.text) {
       const visible = filter(part.text);
       if (visible) {
@@ -194,6 +198,7 @@ async function writeLongChapter(story, index, perChapter, settings, emit, signal
       temperature: 0.7,
       maxTokens: 1500,
       signal,
+      emit,
     });
     const data = parseJsonLoose(text);
     scenes = (Array.isArray(data?.scenes) ? data.scenes : [])
@@ -243,7 +248,7 @@ async function writeChapter(story, index, perChapter, settings, emit, signal, ex
 async function updateMemory(story, index, settings, emit, signal) {
   emit({ type: 'status', message: `Aggiorno la memoria della storia (capitolo ${index + 1})…` });
   try {
-    const { text } = await complete(settings, memoryMessages(story, index), { temperature: 0.2, maxTokens: 900, signal });
+    const { text } = await complete(settings, memoryMessages(story, index), { temperature: 0.2, maxTokens: 900, signal, emit });
     const note = cleanChapterText(text);
     if (!note) return;
     story.memory = story.memory || [];
@@ -260,7 +265,7 @@ async function ensureBrief(story, settings, emit, signal) {
   const b = story.brief;
   if (!b.freeText || b.extracted) return;
   emit({ type: 'status', message: 'Analizzo la tua richiesta…' });
-  const { text } = await complete(settings, extractBriefMessages(b.freeText), { temperature: 0.3, maxTokens: 2000, signal });
+  const { text } = await complete(settings, extractBriefMessages(b.freeText), { temperature: 0.3, maxTokens: 2000, signal, emit });
   const data = parseJsonLoose(text) || {};
   for (const key of ['title', 'fandom', 'genre', 'setting', 'plot', 'characters', 'style', 'notes']) {
     if (!b[key] && typeof data[key] === 'string' && data[key].trim()) b[key] = data[key].trim();
@@ -296,6 +301,7 @@ async function ensureOutline(story, settings, emit, signal) {
       temperature: 0.8,
       maxTokens: Math.min(Number(settings.maxTokens) || 8000, 400 + n * 250) || undefined,
       signal,
+      emit,
     });
     data = parseJsonLoose(text);
   }
@@ -366,6 +372,7 @@ async function planStory(story, settings, emit, signal) {
         temperature: 0.8,
         maxTokens: Math.min(Number(settings.maxTokens) || 8000, 800 + (to - from) * 400),
         signal,
+      emit,
       });
       const data = parseJsonLoose(text);
       chapters = Array.isArray(data?.chapters) ? data.chapters : [];
@@ -428,7 +435,7 @@ async function continueStory(story, settings, direction, emit, signal) {
     return writeChapter(story, story.chapters.length, perChapter, settings, emit, signal, direction);
   }
   emit({ type: 'status', message: 'Pianifico il prossimo capitolo…' });
-  const { text } = await complete(settings, nextChapterPlanMessages(story, direction), { temperature: 0.8, maxTokens: 800, signal });
+  const { text } = await complete(settings, nextChapterPlanMessages(story, direction), { temperature: 0.8, maxTokens: 800, signal, emit });
   const data = parseJsonLoose(text) || {};
   story.outline.push({
     title: String(data.title || `Capitolo ${story.outline.length + 1}`),

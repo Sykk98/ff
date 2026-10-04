@@ -36,6 +36,16 @@ function networkError(url, err) {
   return new Error(`Impossibile contattare ${url}: ${err.message}`);
 }
 
+// Distanza minima tra due richieste allo stesso servizio (i piani gratuiti limitano le richieste al secondo).
+const lastRequestAt = new Map();
+async function throttle(url, settings, signal) {
+  const gap = /mistral/.test(settings.baseUrl || '') ? 1500 : 300;
+  const key = hostOf(url);
+  const wait = (lastRequestAt.get(key) || 0) + gap - Date.now();
+  if (wait > 0) await sleep(wait, signal);
+  lastRequestAt.set(key, Date.now());
+}
+
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
     const t = setTimeout(resolve, ms);
@@ -71,7 +81,7 @@ async function* lines(body) {
 /**
  * Stream di testo dal modello: async iterator di { text } e, alla fine, { finishReason }.
  */
-export async function* streamOpenAI(settings, messages, { maxTokens, temperature, signal } = {}) {
+export async function* streamOpenAI(settings, messages, { maxTokens, temperature, signal, onWait } = {}) {
   if (!settings.baseUrl) throw new Error('Indirizzo del servizio non configurato. Apri Impostazioni.');
   if (!settings.model) throw new Error('Modello non configurato. Apri Impostazioni.');
 
@@ -87,19 +97,36 @@ export async function* streamOpenAI(settings, messages, { maxTokens, temperature
 
   const url = settings.baseUrl.replace(/\/+$/, '') + '/chat/completions';
   let res;
-  // Limite di richieste (frequente sui piani gratuiti): attende e riprova fino a 3 volte.
+  // Limite di richieste (frequente sui piani gratuiti): attende e riprova per circa 3 minuti.
+  const waits = [5, 10, 20, 40, 60, 60];
   for (let attempt = 0; ; attempt++) {
+    await throttle(url, settings, signal);
     try {
       res = await fetch(url, { method: 'POST', headers: buildHeaders(settings), body: JSON.stringify(body), signal });
     } catch (err) {
       if (err.name === 'AbortError') throw err;
       throw networkError(url, err);
     }
-    if (res.status !== 429 || attempt >= 3) break;
+    if (res.status !== 429 || attempt >= waits.length) break;
     const retryAfter = Number(res.headers.get('retry-after'));
-    const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 60) * 1000 : [3000, 8000, 20000][attempt];
+    const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(Math.ceil(retryAfter), 90) : waits[attempt];
     await res.body?.cancel?.().catch(() => {});
-    await sleep(wait, signal);
+    onWait?.(seconds, attempt + 1);
+    await sleep(seconds * 1000, signal);
+  }
+  if (res.status === 429) {
+    const text = await res.text().catch(() => '');
+    let detail = text;
+    try {
+      const j = JSON.parse(text);
+      detail = j.error?.message || j.message || text;
+    } catch {}
+    throw new Error(
+      'Il servizio continua a rispondere che è stato superato il limite di richieste del tuo piano. ' +
+        'Aspetta qualche minuto e riprova: il lavoro già fatto resta salvato e l\'app riprende da dove si è fermata. ' +
+        'I limiti del tuo account Mistral sono indicati su console.mistral.ai, alla voce Limits. ' +
+        `Dettaglio: ${String(detail).slice(0, 200)}`,
+    );
   }
 
   if (!res.ok) {

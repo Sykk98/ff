@@ -115,5 +115,10 @@ export async function onRequest(context) {
   const headers = new Headers();
   headers.set('Content-Type', res.headers.get('Content-Type') || 'application/json');
   headers.set('Cache-Control', 'no-store');
+  // indicazioni sui limiti del piano: servono all'app per sapere quanto aspettare prima di riprovare
+  for (const h of ['Retry-After', 'X-RateLimit-Limit-Requests', 'X-RateLimit-Remaining-Requests', 'X-RateLimit-Reset-Requests']) {
+    const v = res.headers.get(h);
+    if (v) headers.set(h, v);
+  }
   return new Response(res.body, { status: res.status, headers });
 }

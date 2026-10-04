@@ -4,7 +4,7 @@
 // - senza server (telefono, GitHub Pages): le stesse richieste sono gestite da local-backend.js nel browser.
 import { exportStory, safeFileName } from './core/text.js';
 
-export const APP_VERSION = '2026-10-04.6';
+export const APP_VERSION = '2026-10-04.8';
 
 // Nessun errore deve passare in silenzio: mostralo all'utente.
 window.addEventListener('error', (e) => toastError(e.message));
@@ -343,9 +343,11 @@ function renderComposer() {
   if (novel && incomplete) $('#writeNextBtn').textContent = `✍️ Scrivi il capitolo ${s.chapters.length + 1}`;
   $('#reviseBtn').hidden = !novel;
   const planPending = s?.mode === 'plan' && !s?.planComplete && (s?.bible || s?.outline.length);
-  $('#resumeBtn').hidden = !(planPending || (incomplete && !novel));
-  $('#resumeBtn').textContent = planPending ? '▶️ Completa il progetto' : '▶️ Riprendi generazione';
-  if (planPending) {
+  // la richiesta è stata inviata ma si è fermata prima di produrre qualcosa (es. limite di richieste)
+  const stalled = !state.busy && s && s.brief?.freeText && !s.outline.length && !s.bible && s.messages.length > 0;
+  $('#resumeBtn').hidden = !(planPending || stalled || (incomplete && !novel));
+  $('#resumeBtn').textContent = planPending ? '▶️ Completa il progetto' : stalled ? '🔁 Riprova' : '▶️ Riprendi generazione';
+  if (planPending || stalled) {
     $('#quickActions').hidden = false;
     $('#writeNextBtn').hidden = true;
   }
@@ -393,6 +395,14 @@ function renderMessages() {
   }
   box.innerHTML = '';
   s.messages.forEach((m, i) => box.appendChild(messageEl(m, i)));
+  // l'ultimo errore resta visibile finché non si riprova
+  if (state.lastError?.storyId === s.id) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg assistant';
+    wrap.innerHTML = '<div class="bubble"><div class="error"></div></div>';
+    wrap.querySelector('.error').textContent = '⚠️ ' + state.lastError.message;
+    box.appendChild(wrap);
+  }
   box.scrollTop = box.scrollHeight;
 }
 
@@ -653,6 +663,7 @@ async function ensureConfigured() {
 async function runGeneration(kind, body) {
   const s = state.story;
   if (!s || state.busy) return;
+  state.lastError = null;
   if (!(await ensureConfigured())) return;
   const ui = liveMessage({ prose: true });
   const controller = new AbortController();
@@ -722,6 +733,7 @@ async function runGeneration(kind, body) {
   } catch (err) {
     if (err.name !== 'AbortError') {
       ui.error(err.message);
+      state.lastError = { storyId: state.story?.id, message: err.message };
       toast(err.message, 6000);
     }
   } finally {
@@ -775,6 +787,7 @@ async function reloadStory() {
 
 async function runChat(message) {
   const s = state.story;
+  state.lastError = null;
   if (!(await ensureConfigured())) return;
   // mostra subito il messaggio utente
   s.messages.push({ role: 'user', content: message });
@@ -797,6 +810,7 @@ async function runChat(message) {
   } catch (err) {
     if (err.name !== 'AbortError') {
       ui.error(err.message);
+      state.lastError = { storyId: state.story?.id, message: err.message };
       toast(err.message, 6000);
     }
   } finally {
