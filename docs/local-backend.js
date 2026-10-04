@@ -2,7 +2,7 @@
 // Le storie stanno in IndexedDB, le impostazioni in localStorage, e l'AI viene chiamata
 // direttamente da qui (serve un servizio che accetti richieste dal browser, come OpenRouter).
 import { createEngine } from './core/engine.js';
-import { streamOpenAI, listOpenAIModels } from './core/openai.js';
+import { streamWithModelFallback, listOpenAIModels } from './core/openai.js';
 import { storyWords } from './core/text.js';
 
 const SETTINGS_KEY = 'fanfic-studio-settings';
@@ -14,6 +14,15 @@ export const PHONE_PRESETS = [
     badge: 'consigliato · piano gratuito · ottimo italiano',
     baseUrl: '/api/mistral/v1', // ponte sullo stesso indirizzo dell'app (worker/ o functions/api/mistral)
     model: 'mistral-large-latest',
+    keyUrl: 'https://console.mistral.ai/api-keys',
+    needsProxy: true,
+  },
+  {
+    id: 'mistral-medium',
+    label: 'Mistral Medium',
+    badge: 'piano gratuito · buon equilibrio tra qualità e velocità',
+    baseUrl: '/api/mistral/v1',
+    model: 'mistral-medium-latest',
     keyUrl: 'https://console.mistral.ai/api-keys',
     needsProxy: true,
   },
@@ -222,7 +231,13 @@ export function createLocalBackend() {
     return db.put(story);
   }
 
-  const engine = createEngine({ streamChat: (s, m, o) => streamOpenAI(s, m, o), saveStory });
+  // Se il modello scelto non è nel piano dell'utente, ne usa uno incluso e lo ricorda.
+  const rememberModel = (model) => {
+    const s = readSettings();
+    s.model = model;
+    writeSettings(s);
+  };
+  const engine = createEngine({ streamChat: (s, m, o) => streamWithModelFallback(s, m, o, rememberModel), saveStory });
 
   // Chiede al browser di non cancellare i dati quando lo spazio scarseggia.
   try {

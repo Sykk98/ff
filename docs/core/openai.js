@@ -139,6 +139,43 @@ export async function* streamOpenAI(settings, messages, { maxTokens, temperature
   yield { finishReason };
 }
 
+// Modelli Mistral in ordine di qualità: se il piano dell'utente non include un modello,
+// l'app prova automaticamente il successivo e ricorda quello che funziona.
+export const MISTRAL_FALLBACKS = ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest', 'open-mistral-nemo'];
+const TIER_ERROR = /not available in your|subscription tier|not (?:included|available) (?:in|with) your|upgrade your plan|invalid model|model .*not found|no such model/i;
+
+const isMistral = (settings) => /api\.mistral\.ai|(?:^|\/)api\/mistral\//.test(settings.baseUrl || '');
+
+/**
+ * Come streamOpenAI, ma con Mistral passa a un modello incluso nel piano se quello scelto non lo è.
+ * onModelChange(nuovoModello) viene chiamata quando un modello alternativo funziona.
+ */
+export async function* streamWithModelFallback(settings, messages, opts = {}, onModelChange) {
+  const chain = isMistral(settings) ? [settings.model, ...MISTRAL_FALLBACKS.filter((m) => m !== settings.model)] : [settings.model];
+  let lastError = null;
+  for (const model of chain) {
+    let started = false;
+    try {
+      for await (const part of streamOpenAI({ ...settings, model }, messages, opts)) {
+        started = true;
+        yield part;
+      }
+      if (model !== settings.model) {
+        settings.model = model; // le richieste successive della stessa operazione usano subito il modello buono
+        await onModelChange?.(model);
+      }
+      return;
+    } catch (err) {
+      if (started || err.name === 'AbortError' || !TIER_ERROR.test(err.message || '')) throw err;
+      lastError = err;
+    }
+  }
+  throw new Error(
+    'Nessun modello di Mistral è disponibile con il tuo piano. Su console.mistral.ai controlla di aver attivato il piano gratuito «Experiment» ' +
+      '(sezione Billing o Subscription) e che la chiave sia di quell\'account. Dettaglio: ' + (lastError?.message || ''),
+  );
+}
+
 export const PROXY_MISSING =
   'Mistral non è disponibile a questo indirizzo: serve la versione dell\'app pubblicata su Cloudflare (Worker o Pages), che contiene il ponte per Mistral. ' +
   'Qui puoi usare OpenRouter.';

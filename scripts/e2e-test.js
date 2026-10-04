@@ -100,7 +100,9 @@ try {
   const afterCh1 = ch1.find((e) => e.type === 'done')?.story;
   assert.ok(afterCh1, 'capitolo 1 non scritto: ' + JSON.stringify(ch1.filter((e) => e.type === 'error')));
   assert.equal(afterCh1.chapters.length, 1);
-  assert.ok(ch1.filter((e) => e.type === 'status' && /scena \d+ di 4/.test(e.message)).length === 4, 'capitolo lungo scritto in 4 scene');
+  assert.equal(ch1.filter((e) => e.type === 'status' && /Scrivo il capitolo 1 di 30… \d+%/.test(e.message)).length, 4, 'capitolo lungo scritto in 4 parti');
+  assert.ok(!/scena\s+\d/i.test(afterCh1.chapters[0].content), 'nessuna etichetta "Scena N" nel capitolo');
+  assert.ok(!/riassunto che non deve comparire/.test(afterCh1.chapters[0].content), 'nessun riassunto del piano nel capitolo');
   assert.ok(afterCh1.chapters[0].content.split(/\s+/).length > 1500, 'capitolo lungo');
   assert.match(afterCh1.memory[0], /Questioni aperte/, 'memoria di continuità del capitolo 1');
   const rev = await stream(`/api/stories/${novel.id}/revise`, { instructions: 'Lyra ha 29 anni' });
@@ -149,6 +151,18 @@ try {
   assert.ok(sse.includes('data:') && sse.includes('[DONE]'), 'lo streaming deve passare invariato');
   const models = await (await call('v1/models', { headers: auth })).json();
   assert.ok(models.data.some((m) => m.id === 'mock'));
+
+  // modello non incluso nel piano Mistral: passa da solo a uno disponibile e lo ricorda
+  const { streamWithModelFallback } = await import('../docs/core/openai.js');
+  const fbSettings = { baseUrl: 'http://localhost:3998/x/api/mistral/v1', model: 'mistral-large-latest', apiKey: 'k' };
+  let remembered = null;
+  let fbText = '';
+  for await (const part of streamWithModelFallback(fbSettings, [{ role: 'user', content: 'Rispondi solo con: OK' }], {}, (m) => (remembered = m))) {
+    if (part.text) fbText += part.text;
+  }
+  assert.equal(fbText, 'OK');
+  assert.equal(remembered, 'mistral-small-latest', 'large e medium non disponibili -> small');
+  assert.equal(fbSettings.model, 'mistral-small-latest', 'le richieste successive usano subito il modello buono');
 
   // accesso automatico: chiave su Cloudflare protetta dalla password dell'app
   const callEnv = (envX, p, init = {}) =>

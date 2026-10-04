@@ -71,6 +71,19 @@ function cleanDocument(text) {
     .trim();
 }
 
+const ORDINALS =
+  'uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|prima|primo|seconda|secondo|terza|terzo|quarta|quarto|quinta|quinto|sesta|sesto|finale|iniziale|one|two|three|four|five|six|first|second|third|final|[ivx]+|\\d+';
+const LABEL_LINE = new RegExp(`^[ \\t>*_#(\\[]*(?:scena|parte|momento|scene|part)\\s+(?:${ORDINALS})\\b[^\\n]{0,160}$`, 'gim');
+
+/** Toglie titoli interni ed etichette come "Scena uno (…)" che a volte il modello aggiunge. */
+export function stripSceneLabels(text) {
+  return text
+    .replace(LABEL_LINE, '')
+    .replace(/^[ \t]*#{1,6}[ \t]+[^\n]*$/gm, '') // nessun titolo dentro un capitolo
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function cleanChapterText(text) {
   return text
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
@@ -167,14 +180,14 @@ async function writeShortChapter(story, index, perChapter, settings, emit, signa
     if (countWords(more.text) < 50) break;
   }
 
-  return cleanChapterText(text);
+  return stripSceneLabels(cleanChapterText(text));
 }
 
 /** Capitolo lungo: prima la scaletta delle scene, poi ogni scena in sequenza. */
 async function writeLongChapter(story, index, perChapter, settings, emit, signal, extra) {
   const nScenes = clamp(Math.round(perChapter / 1300), 2, 6);
   const total = story.outline.length;
-  emit({ type: 'status', message: `Capitolo ${index + 1} di ${total}: preparo le scene…` });
+  emit({ type: 'status', message: `Capitolo ${index + 1} di ${total}: preparo la struttura…` });
   let scenes = [];
   for (let attempt = 0; attempt < 2 && scenes.length < 2; attempt++) {
     const { text } = await complete(settings, scenePlanMessages(story, index, nScenes, perChapter, extra), {
@@ -183,17 +196,19 @@ async function writeLongChapter(story, index, perChapter, settings, emit, signal
       signal,
     });
     const data = parseJsonLoose(text);
-    scenes = (Array.isArray(data?.scenes) ? data.scenes : []).map((x) => String(x?.summary || x || '').trim()).filter(Boolean);
+    scenes = (Array.isArray(data?.scenes) ? data.scenes : [])
+      .map((x) => String(x?.summary || x || '').replace(/^\s*(?:scena|parte|momento)\s+\S+\s*[:.\-–—]\s*/i, '').trim())
+      .filter(Boolean);
   }
   if (scenes.length < 2) {
     // ripiego: divide il riassunto del capitolo in parti
-    scenes = Array.from({ length: nScenes }, (_, i) => `Parte ${i + 1} di ${nScenes} di: ${story.outline[index].summary}`);
+    scenes = Array.from({ length: nScenes }, (_, i) => `${i + 1}/${nScenes} di: ${story.outline[index].summary}`);
   }
   const sceneWords = Math.round(perChapter / scenes.length);
   let text = '';
   for (let k = 0; k < scenes.length; k++) {
     if (signal?.aborted) throw abortError();
-    emit({ type: 'status', message: `Capitolo ${index + 1} di ${total} · scena ${k + 1} di ${scenes.length}…` });
+    emit({ type: 'status', message: `Scrivo il capitolo ${index + 1} di ${total}… ${Math.round((k / scenes.length) * 100)}%` });
     if (text) {
       emit({ type: 'delta', text: '\n\n' });
       text += '\n\n';
@@ -205,9 +220,9 @@ async function writeLongChapter(story, index, perChapter, settings, emit, signal
       emit,
       signal,
     );
-    text += cleanChapterText(part.text);
+    text += stripSceneLabels(cleanChapterText(part.text));
   }
-  return text.trim();
+  return stripSceneLabels(text);
 }
 
 /** Scrive un capitolo, lo salva e, nella modalità romanzo, aggiorna la memoria di continuità. */
@@ -438,7 +453,7 @@ async function rewriteChapter(story, index, instructions, settings, emit, signal
     signal,
     3,
   );
-  const content = cleanChapterText(text);
+  const content = stripSceneLabels(cleanChapterText(text));
   if (!content) throw new Error('Il modello ha restituito un testo vuoto.');
   story.chapters[index] = { ...ch, content, previous: ch.content };
   await saveStory(story);

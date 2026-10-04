@@ -4,7 +4,7 @@
 // - senza server (telefono, GitHub Pages): le stesse richieste sono gestite da local-backend.js nel browser.
 import { exportStory, safeFileName } from './core/text.js';
 
-export const APP_VERSION = '2026-10-04.5';
+export const APP_VERSION = '2026-10-04.6';
 
 // Nessun errore deve passare in silenzio: mostralo all'utente.
 window.addEventListener('error', (e) => toastError(e.message));
@@ -730,6 +730,7 @@ async function runGeneration(kind, body) {
     setBusy(false);
     await reloadStory();
     if (written > 0 && kind === 'generate') toast('Storia pronta! Aprila nella scheda Storia.');
+    await refreshModelNotice();
   }
 }
 
@@ -746,6 +747,21 @@ function renderSidebarCounts() {
   loadStories().catch(() => {});
   const words = state.story.chapters.reduce((n, c) => n + countWords(c.content), 0);
   $('#wordBadge').textContent = words ? fmt(words) : '';
+}
+
+/** Se l'app è passata da sola a un altro modello (piano Mistral), avvisa e aggiorna le impostazioni. */
+async function refreshModelNotice() {
+  const before = state.settings?.activeModel;
+  try {
+    await loadSettings();
+  } catch {
+    return;
+  }
+  const after = state.settings?.activeModel;
+  if (before && after && before !== after) {
+    toast(`«${before}» non è incluso nel tuo piano: d'ora in poi uso «${after}».`, 8000);
+    if ($('#settingsDialog').open) $('#setModel').value = after;
+  }
 }
 
 async function reloadStory() {
@@ -788,6 +804,7 @@ async function runChat(message) {
     state.controller = null;
     setBusy(false);
     await reloadStory();
+    await refreshModelNotice();
   }
 }
 
@@ -1076,7 +1093,16 @@ $('#testBtn').addEventListener('click', async () => {
     await saveSettingsFromForm();
     if (!state.settings.configured) throw new Error('Nessun modello selezionato.');
     const res = await api('/api/settings/test', { method: 'POST' });
-    setResult(`✓ Funziona (${(res.ms / 1000).toFixed(1)} s). Risposta: "${res.reply}"`, 'ok');
+    const asked = state.settings.activeModel;
+    await loadSettings();
+    const used = state.settings.activeModel;
+    if (used !== asked) $('#setModel').value = used;
+    setResult(
+      `✓ Funziona (${(res.ms / 1000).toFixed(1)} s). Risposta: "${res.reply}"` +
+        (used !== asked ? ` · «${asked}» non è nel tuo piano, quindi uso «${used}».` : ''),
+      'ok',
+    );
+    if (backend) renderPhonePresets();
   } catch (e) {
     setResult('✗ ' + e.message, 'err');
   }

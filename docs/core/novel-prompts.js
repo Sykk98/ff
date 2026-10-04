@@ -123,7 +123,7 @@ export function scenePlanMessages(story, index, nScenes, wordsPerChapter, extra)
       content: `${canonContext(story, index)}
 ${chapterFrame(story, index)}
 ${extra ? `Indicazioni dell'autore per questo capitolo: ${extra}\n` : ''}
-Dividi il capitolo (circa ${wordsPerChapter} parole) in ${nScenes} scene che formino una mini-struttura narrativa completa: apertura, sviluppo, svolta, chiusura con un aggancio al capitolo successivo.
+Pianifica il capitolo (circa ${wordsPerChapter} parole) in ${nScenes} momenti consecutivi che formino una mini-struttura narrativa completa: apertura, sviluppo, svolta, chiusura con un aggancio al capitolo successivo. È solo un piano di lavoro interno: il capitolo finale sarà un testo unico e fluido, senza divisioni visibili.
 Il capitolo deve iniziare in continuità diretta con la fine del capitolo precedente.
 
 Rispondi con:
@@ -134,9 +134,19 @@ Rispondi con:
 
 export function sceneMessages(story, index, scenes, k, sceneWords, textSoFar, extra) {
   const prev = index > 0 ? story.chapters[index - 1]?.content || '' : '';
-  const plan = scenes.map((s, i) => `${i + 1}. ${s}${i === k ? '  <-- DA SCRIVERE ORA' : ''}`).join('\n');
-  const isLastScene = k === scenes.length - 1;
+  const plan = scenes.map((sc, i) => `${i + 1}) ${sc}${i === k ? '   ← QUESTO È IL MOMENTO DA SCRIVERE ORA' : ''}`).join('\n');
+  const isLastPart = k === scenes.length - 1;
   const isLastChapter = index === story.outline.length - 1;
+  const context = textSoFar
+    ? `Testo del capitolo scritto finora. Il tuo testo verrà attaccato subito dopo l'ultima frase, quindi riprendi da lì senza ripetere nulla:\n"""\n${tail(textSoFar, 7000)}\n"""`
+    : prev
+      ? `Fine del capitolo precedente (il nuovo capitolo riparte da qui):\n"""\n${tail(prev, 5000)}\n"""`
+      : "È l'inizio del romanzo.";
+  const ending = isLastPart
+    ? isLastChapter
+      ? 'È la parte finale del romanzo: chiudi la storia come previsto.'
+      : 'È la parte finale del capitolo: chiudilo con un aggancio verso il successivo, senza concludere la storia.'
+    : 'Non chiudere il capitolo: lascia la narrazione aperta verso il momento successivo.';
   return [
     { role: 'system', content: systemPrompt(story.brief) },
     {
@@ -144,23 +154,19 @@ export function sceneMessages(story, index, scenes, k, sceneWords, textSoFar, ex
       content: `${canonContext(story, index)}
 ${chapterFrame(story, index)}
 
-Scene del capitolo:
+Piano interno del capitolo (serve solo a te per orientarti: NON va mai scritto, citato o riassunto nel testo):
 ${plan}
 ${extra ? `\nIndicazioni dell'autore per questo capitolo: ${extra}\n` : ''}
-${
-  textSoFar
-    ? `Testo del capitolo scritto finora (continua da qui, senza ripetere):\n"""\n${tail(textSoFar, 7000)}\n"""`
-    : prev
-      ? `Fine del capitolo precedente (il nuovo capitolo riparte da qui):\n"""\n${tail(prev, 5000)}\n"""`
-      : 'È l\'inizio del romanzo.'
-}
+${context}
 
-Scrivi ora la scena ${k + 1} di ${scenes.length}, circa ${sceneWords} parole.
-- Rispetta lo stile richiesto dall'autore nella story bible: linguaggio semplice, naturale e diretto, ma scene molto dettagliate (espressioni, piccoli gesti, tono di voce, silenzi, esitazioni, linguaggio del corpo, ambiente, reazioni degli altri).
+Scrivi ora il momento ${k + 1} del piano, circa ${sceneWords} parole, come parte continua dello stesso capitolo di un libro stampato.
+- Il lettore NON deve accorgersi della divisione: niente titoli, niente parole come "Scena", "Parte", "Momento", niente numeri, niente parentesi con descrizioni, niente riassunti del piano o anticipazioni.
+- ${k > 0 ? 'Collegati alla frase precedente con una transizione narrativa naturale (un gesto, un cambio di luogo o di tempo raccontato nella prosa), così che il capitolo scorra fluido.' : 'Apri il capitolo direttamente con la narrazione.'}
+- Rispetta lo stile richiesto dall'autore nella story bible: linguaggio semplice, naturale e diretto, ma molto dettagliato (espressioni, piccoli gesti, tono di voce, silenzi, esitazioni, linguaggio del corpo, ambiente, reazioni degli altri).
 - Dialoghi realistici; emozioni mostrate attraverso azioni, parole e non detti, non spiegate dal narratore.
 - Rispetta il canon e la memoria dei capitoli: nessuna contraddizione su età, aspetto, luoghi, date, eventi, cose che i personaggi sanno o non sanno.
-- ${isLastScene ? (isLastChapter ? 'È la scena finale del romanzo: chiudi la storia come previsto.' : 'È l\'ultima scena del capitolo: chiudi il capitolo con un aggancio verso il successivo, senza concludere la storia.') : 'Non chiudere il capitolo: la scena deve portare alla successiva.'}
-Scrivi solo il testo narrativo, senza titoli, numeri di scena, premesse o commenti.`,
+- ${ending}
+Rispondi solo con il testo narrativo.`,
     },
   ];
 }

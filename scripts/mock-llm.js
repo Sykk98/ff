@@ -42,7 +42,7 @@ function reply(messages) {
     return '# Story bible: La Notte dei Corvi\n\n## Premessa\nUna mercenaria e un principe.\n\n## Protagonisti\n- Lyra, 28 anni, capelli neri\n- Kael, 30 anni\n\n## Finale\nAgrodolce.';
   }
   if (sys.includes('pianifichi le scene')) {
-    const n = Number(user.match(/in (\d+) scene/)?.[1]) || 3;
+    const n = Number(user.match(/in (\d+) (?:scene|momenti)/)?.[1]) || 3;
     return JSON.stringify({ scenes: Array.from({ length: n }, (_, i) => ({ summary: `Scena ${i + 1} del capitolo.` })) });
   }
   const batch = user.match(/capitoli da (\d+) a (\d+)/);
@@ -64,6 +64,8 @@ function reply(messages) {
   if (user.includes('Rispondi solo con: OK')) return 'OK';
   const words = Number(user.match(/circa (\d+) parole/)?.[1]) || 120;
   let out = '<think>ragionamento nascosto</think>';
+  const moment = user.match(/Scrivi ora il momento (\d+)/);
+  if (moment) out += `Scena ${moment[1]} (riassunto che non deve comparire)\n\n**Scena ${moment[1]}: titolo**\n\n`;
   while (out.split(/\s+/).length < Math.min(words, 600)) out += LOREM + '\n\n';
   return out;
 }
@@ -148,7 +150,12 @@ http
     lastOpenAIAuth = req.headers.authorization || null;
     let body = '';
     for await (const c of req) body += c;
-    const { messages } = JSON.parse(body);
+    const { messages, model } = JSON.parse(body);
+    // come un account Mistral il cui piano non include i modelli più grandi
+    if (['mistral-large-latest', 'mistral-medium-latest'].includes(model)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ object: 'error', message: 'This model is not available in your subscription tier', type: 'invalid_request_error' }));
+    }
     const text = reply(messages);
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     const tokens = text.match(/[\s\S]{1,12}/g) || [];
