@@ -6,6 +6,7 @@ Scrivi nella chat trama, personaggi e lunghezza: l'AI prepara una scaletta e scr
 
 ## Funzioni
 
+- **Modalità romanzo** per le storie lunghe, o quando lo chiedi: prima l'AI prepara il progetto (story bible completa e scaletta di tutti i capitoli), poi scrivete un capitolo alla volta. Ogni capitolo lungo viene scritto per scene con una propria mini-struttura, e dopo ogni capitolo l'app aggiorna una memoria di continuità (fatti, chi sa cosa, stato emotivo, questioni aperte) che viene usata nei capitoli successivi. Il progetto si può modificare a mano o con l'AI, partendo da quello di cui avete parlato in chat.
 - **Chat AI**: descrivi la storia a parole tue. L'app estrae titolo, trama, personaggi e lunghezza dalla richiesta.
 - **Generazione automatica a capitoli**: dalla flash fiction (~800 parole) al romanzo (~50.000), oppure una lunghezza a scelta. Ogni capitolo riceve scaletta e finale del capitolo precedente per mantenere la continuità.
 - **Opzioni di contenuto per storia**: temi dark sì/no, scene sessuali esplicite / con dissolvenza / assenti, punto di vista, tempo verbale, lingua, genere e stile.
@@ -148,6 +149,7 @@ server.js          server HTTP e API
 lib/llm.js         client in streaming: sceglie tra Ollama e API compatibili OpenAI
 lib/ollama.js      API nativa di Ollama: chat, modelli installati, download
 lib/store.js       salvataggio di storie e impostazioni in data/
+docs/core/novel-prompts.js  prompt della modalità romanzo: story bible, scaletta, scene, memoria
 docs/              interfaccia web, pubblicata anche come versione per telefono
 docs/core/         motore condiviso tra server e telefono: prompt, scaletta, capitoli, chat
 docs/local-backend.js  versione per telefono: storie nel browser, AI chiamata direttamente

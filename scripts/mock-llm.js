@@ -18,13 +18,37 @@ function reply(messages) {
   const sys = messages.find((m) => m.role === 'system')?.content || '';
   const user = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
   if (sys.includes('assistente editoriale')) {
+    const request = user.split('"""')[1] || user; // solo il testo dell'autore, non le istruzioni
+    const range = request.match(/(\d+)\s*-\s*(\d+)\s*capitoli/);
+    const wpc = request.match(/(\d+)\s*parole a capitolo/);
     return JSON.stringify({
       title: 'La Notte dei Corvi',
       genre: 'dark fantasy',
-      plot: user.slice(0, 300),
+      plot: (user.split('"""')[1] || user).slice(0, 300),
       characters: 'Lyra, mercenaria; Kael, principe prigioniero',
       targetWords: 0,
+      chapterCount: range ? Math.round((Number(range[1]) + Number(range[2])) / 2) : 0,
+      wordsPerChapter: wpc ? Number(wpc[1]) : 0,
+      planFirst: /NON iniziare|outline|story bible/i.test(request),
     });
+  }
+  if (sys.includes('editor di continuità')) {
+    return '**Cosa succede:** Lyra incontra Kael.\n**Nuovi fatti di canon:**\n- Lyra ha 29 anni\n**Chi sa cosa:** nessuno sa del patto.\n**Stato emotivo e delle relazioni:** diffidenza.\n**Questioni aperte:** il patto segreto.';
+  }
+  if (sys.includes('aggiorni il progetto')) {
+    return '# Story bible: La Notte dei Corvi\n\n## Premessa\nVersione rivista del progetto.\n\n## Protagonisti\n- Lyra, 29 anni\n- Kael, 31 anni';
+  }
+  if (sys.includes('progetti un romanzo')) {
+    return '# Story bible: La Notte dei Corvi\n\n## Premessa\nUna mercenaria e un principe.\n\n## Protagonisti\n- Lyra, 28 anni, capelli neri\n- Kael, 30 anni\n\n## Finale\nAgrodolce.';
+  }
+  if (sys.includes('pianifichi le scene')) {
+    const n = Number(user.match(/in (\d+) scene/)?.[1]) || 3;
+    return JSON.stringify({ scenes: Array.from({ length: n }, (_, i) => ({ summary: `Scena ${i + 1} del capitolo.` })) });
+  }
+  const batch = user.match(/capitoli da (\d+) a (\d+)/);
+  if (sys.includes('pianifichi') && batch) {
+    const [from, to] = [Number(batch[1]), Number(batch[2])];
+    return JSON.stringify({ chapters: Array.from({ length: to - from + 1 }, (_, i) => ({ title: `Capitolo ${from + i}: Ombre ${from + i}`, summary: `Eventi del capitolo ${from + i}.` })) });
   }
   if (sys.includes('pianifichi')) {
     const m = user.match(/esattamente (\d+)/);

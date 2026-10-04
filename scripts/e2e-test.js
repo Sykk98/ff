@@ -81,6 +81,37 @@ try {
   const rw = await stream(`/api/stories/${story.id}/rewrite`, { index: 0, instructions: 'più dark' });
   assert.ok(rw.at(-1).story.chapters[0].previous);
 
+  // modalità romanzo: prima il progetto, poi un capitolo alla volta, con memoria di continuità
+  const novelText = 'Voglio un romanzo fanfiction molto lungo. Punta a 25-35 capitoli molto corposi (5000 parole a capitolo). Per adesso NON iniziare il Capitolo 1: prima story bible e outline.';
+  const novel = await json('/api/stories', { method: 'POST', body: { brief: { freeText: novelText, lengthLocked: false, flow: 'auto', explicitLevel: 'explicit' } } });
+  const plan = await stream(`/api/stories/${novel.id}/generate`, { userMessage: novelText });
+  assert.ok(plan.some((e) => e.type === 'bible'), 'manca la story bible');
+  const planned = plan.find((e) => e.type === 'done')?.story;
+  assert.ok(planned, 'progetto non completato: ' + JSON.stringify(plan.filter((e) => e.type === 'error')));
+  assert.equal(planned.mode, 'plan');
+  assert.equal(planned.planComplete, true);
+  assert.equal(planned.brief.chapterCount, 30, '25-35 capitoli -> 30');
+  assert.equal(planned.brief.wordsPerChapter, 5000);
+  assert.equal(planned.outline.length, 30, 'scaletta di tutti i capitoli, a blocchi');
+  assert.equal(planned.chapters.length, 0, 'il capitolo 1 non deve essere scritto durante il progetto');
+  assert.match(planned.bible, /## Protagonisti/);
+  assert.match(planned.messages.at(-1).content, /Scrivi il capitolo 1/);
+  const ch1 = await stream(`/api/stories/${novel.id}/continue`, { direction: 'inizia con una giornata di pioggia' });
+  const afterCh1 = ch1.find((e) => e.type === 'done')?.story;
+  assert.ok(afterCh1, 'capitolo 1 non scritto: ' + JSON.stringify(ch1.filter((e) => e.type === 'error')));
+  assert.equal(afterCh1.chapters.length, 1);
+  assert.ok(ch1.filter((e) => e.type === 'status' && /scena \d+ di 4/.test(e.message)).length === 4, 'capitolo lungo scritto in 4 scene');
+  assert.ok(afterCh1.chapters[0].content.split(/\s+/).length > 1500, 'capitolo lungo');
+  assert.match(afterCh1.memory[0], /Questioni aperte/, 'memoria di continuità del capitolo 1');
+  const rev = await stream(`/api/stories/${novel.id}/revise`, { instructions: 'Lyra ha 29 anni' });
+  const revised = rev.find((e) => e.type === 'done')?.story;
+  assert.ok(revised, 'revisione fallita: ' + JSON.stringify(rev.filter((e) => e.type === 'error')));
+  assert.match(revised.bible, /Versione rivista/);
+  assert.ok(revised.previousBible, 'la bible precedente resta recuperabile');
+  assert.equal(revised.chapters.length, 1, 'i capitoli scritti non cambiano');
+  assert.equal(revised.outline.length, 30);
+  assert.equal(revised.planComplete, true);
+
   // modello Ollama inesistente: errore comprensibile
   await json('/api/settings', { method: 'POST', body: { ollamaModel: 'non-esiste' } });
   const missing = await stream(`/api/stories/${story.id}/chat`, { message: 'ciao' });

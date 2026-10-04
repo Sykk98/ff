@@ -68,7 +68,11 @@ export function briefToText(brief = {}) {
   if (brief.pov) lines.push(`Punto di vista: ${POV_LABELS[brief.pov] || brief.pov}`);
   if (brief.tense) lines.push(`Tempo verbale: ${brief.tense}`);
   if (brief.notes) lines.push(`Note aggiuntive: ${brief.notes}`);
-  lines.push(`Lunghezza complessiva desiderata: circa ${wordsTarget(brief)} parole`);
+  if (Number(brief.chapterCount) > 0) {
+    lines.push(`Struttura: ${brief.chapterCount} capitoli${Number(brief.wordsPerChapter) > 0 ? ` di circa ${brief.wordsPerChapter} parole` : ''}`);
+  } else {
+    lines.push(`Lunghezza complessiva desiderata: circa ${wordsTarget(brief)} parole`);
+  }
   if (brief.freeText && !brief.plot) lines.push(`Richiesta originale dell'autore:\n${brief.freeText}`);
   return lines.join('\n');
 }
@@ -100,8 +104,11 @@ Restituisci un JSON con queste chiavi (stringa vuota se l'informazione manca, no
   "style": "stile e tono richiesti",
   "pov": "prima | seconda | terza | onnisciente | ''",
   "tense": "passato | presente | ''",
-  "targetWords": numero di parole totali se l'autore indica una lunghezza (es. 'racconto breve' = 2000, 'romanzo' = 50000, '3 capitoli' = 3 x 2000), altrimenti 0,
-  "notes": "qualsiasi altra indicazione"
+  "targetWords": numero di parole totali se l'autore indica una lunghezza (es. 'racconto breve' = 2000, 'romanzo' = 50000, '3 capitoli' = 3 x 2000, una pagina = circa 300 parole), altrimenti 0,
+  "chapterCount": numero di capitoli se l'autore lo indica (con un intervallo, es. 25-35, usa il valore centrale), altrimenti 0,
+  "wordsPerChapter": parole per capitolo se l'autore le indica, altrimenti 0,
+  "planFirst": true se l'autore vuole prima progettare la storia (story bible, scaletta, outline) o scriverla un capitolo alla volta invece che tutta subito, altrimenti false,
+  "notes": "qualsiasi altra indicazione: richieste di stile, struttura, coerenza, scene particolari"
 }`,
     },
   ];
@@ -157,7 +164,7 @@ Rispondi con: { "title": "...", "summary": "3-6 frasi concrete" }`,
 
 // ---------- Scrittura dei capitoli ----------
 
-function tail(text, chars) {
+export function tail(text, chars) {
   if (text.length <= chars) return text;
   const cut = text.slice(-chars);
   const p = cut.indexOf('\n');
@@ -230,27 +237,44 @@ Restituisci solo il nuovo testo del capitolo, senza titolo e senza commenti.`,
 
 export function chatSystemPrompt(story) {
   const base = systemPrompt(story?.brief || {});
+  const outline = (story?.outline || []).map((c, i) => `${i + 1}. ${c.title}: ${c.summary}`).join('\n');
+  const bible = story?.bible
+    ? `\nStory bible del romanzo (canon):\n"""\n${story.bible.length > 16000 ? story.bible.slice(0, 16000) + '\n[…]' : story.bible}\n"""\n`
+    : '';
   if (!story || !story.chapters?.length) {
+    if (story?.bible) {
+      return `${base}
+
+Stai parlando con l'autore nella chat del suo studio di scrittura. Avete appena progettato insieme un romanzo, che non è ancora iniziato.
+${bible}
+Scaletta dei capitoli:
+${outline}
+
+Rispondi alle domande dell'autore sul progetto e discuti con lui le modifiche: proponi soluzioni concrete e coerenti con il resto del canon.
+Quando l'autore vuole applicare le modifiche discusse, ricordagli di premere «Modifica il progetto». Per iniziare a scrivere c'è il pulsante «Scrivi il capitolo 1».`;
+    }
     return `${base}
 
 Stai parlando con l'autore nella chat del suo studio di scrittura. Aiutalo a sviluppare idee, personaggi e trame. Quando ti chiede di scrivere una scena o un testo, scrivilo per intero direttamente.`;
   }
-  const outline = story.outline.map((c, i) => `${i + 1}. ${c.title}: ${c.summary}`).join('\n');
   const last = story.chapters.at(-1);
+  const memory = (story.memory || []).filter(Boolean).length
+    ? `\nMemoria dei capitoli scritti:\n"""\n${story.memory.map((m, i) => (m ? `Capitolo ${i + 1}: ${m}` : '')).filter(Boolean).join('\n\n').slice(-20000)}\n"""\n`
+    : '';
   return `${base}
 
 Stai parlando con l'autore nella chat del suo studio di scrittura, a proposito della storia che state scrivendo insieme.
 
 Scheda:
 ${briefToText(story.brief)}
-
-Capitoli scritti (${story.chapters.length}):
+${bible}
+Scaletta (${story.chapters.length} capitoli scritti su ${story.outline.length}):
 ${outline}
-
+${memory}
 Ultimo capitolo scritto ("${last.title}"), parte finale:
 """
 ${tail(last.content, 4000)}
 """
 
-Rispondi alle richieste dell'autore. Se ti chiede di scrivere scene, continuazioni o varianti, scrivi direttamente il testo narrativo completo, senza premesse.`;
+Rispondi alle richieste dell'autore rispettando il canon. Se ti chiede di scrivere scene, continuazioni o varianti, scrivi direttamente il testo narrativo completo, senza premesse.`;
 }

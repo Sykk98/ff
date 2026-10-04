@@ -231,6 +231,9 @@ async function handleApi(req, res, url) {
           story.outline = body.outline.map((c) => ({ title: String(c.title || ''), summary: String(c.summary || '') }));
         }
         if (Array.isArray(body.messages)) story.messages = body.messages;
+        if (typeof body.bible === 'string') story.bible = body.bible;
+        if (Array.isArray(body.memory)) story.memory = body.memory.map((m) => (m == null ? null : String(m)));
+        if (typeof body.mode === 'string' && ['plan', 'all'].includes(body.mode)) story.mode = body.mode;
         return sendJson(res, 200, await store.saveStory(story));
       }
       if (method === 'DELETE') {

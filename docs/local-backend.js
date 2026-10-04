@@ -307,6 +307,9 @@ export function createLocalBackend() {
         if (Array.isArray(body.chapters)) story.chapters = body.chapters.map((c) => ({ title: String(c.title || ''), content: String(c.content || '') }));
         if (Array.isArray(body.outline)) story.outline = body.outline.map((c) => ({ title: String(c.title || ''), summary: String(c.summary || '') }));
         if (Array.isArray(body.messages)) story.messages = body.messages;
+        if (typeof body.bible === 'string') story.bible = body.bible;
+        if (Array.isArray(body.memory)) story.memory = body.memory.map((m) => (m == null ? null : String(m)));
+        if (typeof body.mode === 'string' && ['plan', 'all'].includes(body.mode)) story.mode = body.mode;
         return saveStory(story);
       }
       if (!action && method === 'DELETE') {

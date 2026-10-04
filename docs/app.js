@@ -4,7 +4,7 @@
 // - senza server (telefono, GitHub Pages): le stesse richieste sono gestite da local-backend.js nel browser.
 import { exportStory, safeFileName } from './core/text.js';
 
-export const APP_VERSION = '2026-10-04.4';
+export const APP_VERSION = '2026-10-04.5';
 
 // Nessun errore deve passare in silenzio: mostralo all'utente.
 window.addEventListener('error', (e) => toastError(e.message));
@@ -121,17 +121,54 @@ function inlineMd(s) {
     .replace(/(^|\W)_(?!\s)(.+?)_(?=\W|$)/g, '$1<em>$2</em>');
 }
 
-function renderMd(text) {
-  return String(text || '')
-    .trim()
-    .split(/\n\s*\n/)
-    .map((block) => {
-      const h = block.match(/^(#{1,4})\s+(.*)$/);
-      if (h && !block.includes('\n')) return `<h${h[1].length + 1}>${inlineMd(h[2])}</h${h[1].length + 1}>`;
-      if (/^(\*\s*){3,}$|^-{3,}$/.test(block.trim())) return '<p style="text-align:center">⁂</p>';
-      return `<p>${block.split('\n').map(inlineMd).join('<br>')}</p>`;
-    })
-    .join('');
+/** Markdown essenziale. Con lists:true riconosce anche gli elenchi (story bible, memoria):
+ *  nei capitoli no, perché i dialoghi possono iniziare con un trattino. */
+function renderMd(text, { lists = false } = {}) {
+  const lines = String(text || '').replace(/\r/g, '').split('\n');
+  let html = '';
+  let para = [];
+  let list = null;
+  const flushPara = () => {
+    if (para.length) html += `<p>${para.map(inlineMd).join('<br>')}</p>`;
+    para = [];
+  };
+  const flushList = () => {
+    if (list) html += `<ul>${list.map((li) => `<li>${inlineMd(li)}</li>`).join('')}</ul>`;
+    list = null;
+  };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) {
+      flushPara();
+      flushList();
+      continue;
+    }
+    const h = line.match(/^(#{1,4})\s+(.*)$/);
+    if (h) {
+      flushPara();
+      flushList();
+      const lv = Math.min(h[1].length + 1, 6);
+      html += `<h${lv}>${inlineMd(h[2])}</h${lv}>`;
+      continue;
+    }
+    if (/^\s*(\*\s*){3,}$|^\s*-{3,}\s*$/.test(line)) {
+      flushPara();
+      flushList();
+      html += '<p style="text-align:center">⁂</p>';
+      continue;
+    }
+    const li = lists && (line.match(/^\s*[-*•]\s+(.*)$/) || line.match(/^\s*\d+[.)]\s+(.*)$/));
+    if (li) {
+      flushPara();
+      (list ||= []).push(li[1]);
+      continue;
+    }
+    flushList();
+    para.push(line);
+  }
+  flushPara();
+  flushList();
+  return html;
 }
 
 const countWords = (t) => (t || '').split(/\s+/).filter(Boolean).length;
@@ -172,22 +209,26 @@ function readOptions() {
     explicitLevel: $('#optExplicit').value,
     darkThemes: $('#optDark').checked,
     style: $('#optStyle').value.trim(),
+    flow: $('#optFlow').value,
     lengthPreset: '',
-    targetWords: 0,
     lengthLocked: true,
   };
+  // "come scritto nella richiesta": non azzera la lunghezza già ricavata dal testo
   if (len === 'custom') o.targetWords = Number($('#optWords').value) || 3000;
   else if (len === 'auto') o.lengthLocked = false;
-  else o.lengthPreset = len;
+  else {
+    o.lengthPreset = len;
+    o.targetWords = 0;
+  }
   return o;
 }
 
 function applyOptions(b = {}) {
-  let len = 'breve';
+  let len = 'auto';
   if (b.lengthPreset) len = b.lengthPreset;
-  else if (Number(b.targetWords) > 0) len = b.lengthLocked === false ? 'auto' : 'custom';
-  else if (b.lengthLocked === false) len = 'auto';
+  else if (Number(b.targetWords) > 0 && b.lengthLocked === true) len = 'custom';
   $('#optLength').value = len;
+  $('#optFlow').value = ['plan', 'all'].includes(b.flow) ? b.flow : 'auto';
   $('#optWords').value = Number(b.targetWords) > 0 ? b.targetWords : 3000;
   $('#optPov').value = b.pov && ['prima', 'seconda', 'terza', 'onnisciente'].includes(b.pov) ? b.pov : '';
   $('#optTense').value = ['passato', 'presente'].includes(b.tense) ? b.tense : '';
@@ -201,7 +242,9 @@ function applyOptions(b = {}) {
 function updateOptionsSummary() {
   $('#customWordsWrap').hidden = $('#optLength').value !== 'custom';
   const lenText = $('#optLength').selectedOptions[0].textContent.replace(/\s*\(.*\)/, '');
-  const bits = [lenText];
+  const bits = [$('#optLength').value === 'auto' ? 'lunghezza dalla richiesta' : lenText];
+  if ($('#optFlow').value === 'plan') bits.push('prima il progetto');
+  if ($('#optFlow').value === 'all') bits.push('tutto subito');
   if ($('#optDark').checked) bits.push('dark');
   bits.push({ explicit: 'esplicito', fade: 'dissolvenza', none: 'no sesso' }[$('#optExplicit').value]);
   if ($('#optLang').value !== 'italiano') bits.push($('#optLang').selectedOptions[0].textContent);
@@ -293,18 +336,34 @@ function renderComposer() {
   const s = state.story;
   const hasText = s?.chapters?.length > 0;
   const incomplete = s && s.outline.length > s.chapters.length;
-  $('#quickActions').hidden = !hasText && !incomplete;
-  $('#resumeBtn').hidden = !incomplete;
-  $('[data-quick="continue"]').hidden = !hasText;
+  const novel = s?.mode === 'plan' && Boolean(s?.bible);
+  $('#quickActions').hidden = !hasText && !incomplete && !novel;
+  // modalità romanzo: un capitolo alla volta, quando lo decide l'autore
+  $('#writeNextBtn').hidden = !(novel && incomplete);
+  if (novel && incomplete) $('#writeNextBtn').textContent = `✍️ Scrivi il capitolo ${s.chapters.length + 1}`;
+  $('#reviseBtn').hidden = !novel;
+  const planPending = s?.mode === 'plan' && !s?.planComplete && (s?.bible || s?.outline.length);
+  $('#resumeBtn').hidden = !(planPending || (incomplete && !novel));
+  $('#resumeBtn').textContent = planPending ? '▶️ Completa il progetto' : '▶️ Riprendi generazione';
+  if (planPending) {
+    $('#quickActions').hidden = false;
+    $('#writeNextBtn').hidden = true;
+  }
+  $('[data-quick="continue"]').hidden = !hasText || (novel && incomplete);
   $('#sendBtn').hidden = state.busy;
   $('#stopBtn').hidden = !state.busy;
   $('#chatInput').disabled = state.busy;
-  $('#chatInput').placeholder = !hasText
+  const fresh = !s || (!hasText && !s.outline.length && !s.bible);
+  $('#chatInput').placeholder = fresh
     ? 'Descrivi trama, personaggi e lunghezza… (Invio per inviare, Maiusc+Invio per andare a capo)'
-    : 'Chiedi una scena, una variante, un consiglio… (Invio per inviare)';
-  $('#modeHint').textContent = !hasText
-    ? 'Il messaggio verrà usato come richiesta: l\'AI preparerà la scaletta e scriverà la storia completa in automatico.'
-    : 'Chatta sulla storia: chiedi scene, varianti, idee o modifiche. Usa «Continua la storia» per aggiungere un capitolo.';
+    : novel && !hasText
+      ? 'Fai domande o chiedi modifiche al progetto… (Invio per inviare)'
+      : 'Chiedi una scena, una variante, un consiglio… (Invio per inviare)';
+  $('#modeHint').textContent = fresh
+    ? 'Il messaggio verrà usato come richiesta. Per le storie lunghe, o se lo chiedi, l\'AI prepara prima il progetto (story bible e scaletta) e poi scrivete un capitolo alla volta; per le storie brevi scrive tutto subito.'
+    : novel
+      ? 'Chatta sul romanzo: domande, idee, modifiche. «Modifica il progetto» applica le modifiche discusse; «Scrivi il capitolo» scrive il prossimo capitolo.'
+      : 'Chatta sulla storia: chiedi scene, varianti, idee o modifiche. Usa «Continua la storia» per aggiungere un capitolo.';
   const words = s ? s.chapters.reduce((n, c) => n + countWords(c.content), 0) : 0;
   $('#wordBadge').textContent = words ? fmt(words) : '';
 }
@@ -347,7 +406,7 @@ function messageEl(m, i) {
   } else {
     const isProse = m.kind !== 'generation' && countWords(m.content) > 120;
     if (isProse) bubble.classList.add('prose');
-    bubble.innerHTML = renderMd(m.content);
+    bubble.innerHTML = renderMd(m.content, { lists: !isProse });
     const actions = document.createElement('div');
     actions.className = 'msg-actions';
     if (m.kind === 'generation') {
@@ -425,16 +484,43 @@ function renderStory() {
   const reader = $('#reader');
   const hasStory = Boolean(s);
   $$('.story-toolbar .btn').forEach((b) => (b.style.visibility = hasStory ? '' : 'hidden'));
-  if (!s || (!s.chapters.length && !s.outline.length)) {
+  if (!s || (!s.chapters.length && !s.outline.length && !s.bible)) {
     $('#storyStats').textContent = '';
     reader.innerHTML = '<div class="empty">La storia apparirà qui quando l\'AI avrà iniziato a scrivere.<br>Vai nella scheda Chat e descrivi cosa vuoi.</div>';
     return;
   }
   const words = s.chapters.reduce((n, c) => n + countWords(c.content), 0);
-  $('#storyStats').textContent = `${s.chapters.length}/${Math.max(s.outline.length, s.chapters.length)} capitoli · ${fmt(words)} parole · ~${Math.max(1, Math.round(words / 230))} min di lettura`;
+  $('#storyStats').textContent =
+    `${s.chapters.length}/${Math.max(s.outline.length, s.chapters.length)} capitoli · ${fmt(words)} parole` +
+    (words ? ` · ~${Math.max(1, Math.round(words / 230))} min di lettura` : '');
 
   const single = s.outline.length <= 1 && s.chapters.length <= 1;
   let html = `<div class="reader-inner"><h1 class="story-title">${escapeHtml(s.title)}</h1>`;
+  if (s.bible) {
+    const editingBible = state.editing === 'bible';
+    html += `<details class="project" ${s.chapters.length && !editingBible ? '' : 'open'}>
+      <summary>📖 Story bible <span class="muted">· il canon del romanzo</span></summary>
+      ${
+        editingBible
+          ? `<textarea class="chapter-edit bible-edit">${escapeHtml(s.bible)}</textarea>
+             <div class="msg-actions"><button class="btn primary" data-ch="bible-save">Salva</button><button class="btn ghost" data-ch="cancel">Annulla</button></div>`
+          : `<div class="msg-actions">
+               <button class="btn" data-ch="bible-edit">✏️ Modifica a mano</button>
+               <button class="btn" data-ch="bible-revise">🛠️ Modifica con l'AI</button>
+               ${s.previousBible ? '<button class="btn" data-ch="bible-undo">↩️ Versione precedente</button>' : ''}
+               <button class="btn" data-ch="bible-export">⬇️ Scarica</button>
+             </div>
+             <div class="bible-body">${renderMd(s.bible, { lists: true })}</div>`
+      }
+    </details>`;
+  }
+  const memories = (s.memory || []).map((m, i) => (m ? { m, i } : null)).filter(Boolean);
+  if (memories.length) {
+    html += `<details class="project">
+      <summary>🧠 Memoria dei capitoli <span class="muted">· ${memories.length} ${memories.length === 1 ? 'scheda' : 'schede'} di continuità</span></summary>
+      <div class="bible-body">${memories.map(({ m, i }) => `<h3>Capitolo ${i + 1}: ${escapeHtml(s.chapters[i]?.title || '')}</h3>${renderMd(m, { lists: true })}`).join('')}</div>
+    </details>`;
+  }
   s.chapters.forEach((c, i) => {
     const tools = `<div class="chapter-tools">
         <button class="btn" data-ch="edit" data-i="${i}" title="Modifica a mano">✏️ Modifica</button>
@@ -455,6 +541,7 @@ function renderStory() {
       </div>`;
     }
   });
+  if (s.outline.length > s.chapters.length && s.bible) html += `<h2 class="outline-title">Scaletta dei prossimi capitoli</h2>`;
   s.outline.slice(s.chapters.length).forEach((c, k) => {
     html += `<div class="outline-pending"><strong>Da scrivere · ${s.chapters.length + k + 1}. ${escapeHtml(c.title)}</strong><br>${escapeHtml(c.summary)}</div>`;
   });
@@ -470,7 +557,24 @@ $('#reader').addEventListener('click', async (e) => {
   const act = btn.dataset.ch;
   if (state.busy && act !== 'cancel') return toast('Attendi la fine della generazione.');
   try {
-    if (act === 'edit') {
+    if (act === 'bible-edit') {
+      state.editing = 'bible';
+      renderStory();
+    } else if (act === 'bible-save') {
+      const bible = $('.bible-edit').value;
+      state.story = await api(`/api/stories/${s.id}`, { method: 'PUT', body: { bible } });
+      state.editing = null;
+      renderAll();
+      toast('Story bible salvata');
+    } else if (act === 'bible-undo') {
+      if (!confirm('Tornare alla versione precedente della story bible? La scaletta resta quella attuale.')) return;
+      state.story = await api(`/api/stories/${s.id}`, { method: 'PUT', body: { bible: s.previousBible } });
+      renderAll();
+    } else if (act === 'bible-export') {
+      downloadText(`${safeFileName(s.title)} - story bible.md`, s.bible, 'text/markdown;charset=utf-8');
+    } else if (act === 'bible-revise') {
+      reviseFlow();
+    } else if (act === 'edit') {
       state.editing = i;
       renderStory();
       document.getElementById(`ch-${i}`)?.scrollIntoView({ block: 'start' });
@@ -491,7 +595,8 @@ $('#reader').addEventListener('click', async (e) => {
       if (!confirm(`Eliminare il capitolo "${s.chapters[i].title}"?`)) return;
       const chapters = s.chapters.filter((_, k) => k !== i);
       const outline = s.outline.filter((_, k) => k !== i);
-      state.story = await api(`/api/stories/${s.id}`, { method: 'PUT', body: { chapters, outline } });
+      const memory = (s.memory || []).filter((_, k) => k !== i);
+      state.story = await api(`/api/stories/${s.id}`, { method: 'PUT', body: { chapters, outline, memory } });
       renderAll();
     } else if (act === 'undo') {
       const chapters = s.chapters.map((c, k) => (k === i ? { title: c.title, content: c.previous } : c));
@@ -563,6 +668,15 @@ async function runGeneration(kind, body) {
         switch (ev.type) {
           case 'status':
             ui.status(ev.message);
+            break;
+          case 'phase':
+            ui.clear();
+            ui.status(ev.message);
+            break;
+          case 'bible':
+            if (ev.title) $('#titleInput').value = ev.title;
+            state.story = { ...state.story, bible: ev.bible, title: ev.title || state.story.title };
+            renderStory();
             break;
           case 'brief':
             if (ev.title) $('#titleInput').value = ev.title;
@@ -689,7 +803,7 @@ async function send() {
 
   try {
     const s = state.story;
-    const empty = !s || (!s.chapters.length && !s.outline.length);
+    const empty = !s || (!s.chapters.length && !s.outline.length && !s.bible);
     if (empty) {
       const brief = { ...readOptions(), freeText: text, extracted: false };
       const typedTitle = $('#titleInput').value.trim();
@@ -1007,7 +1121,7 @@ $('#chatInput').addEventListener('beforeinput', (e) => {
   }
 });
 $('#stopBtn').addEventListener('click', stop);
-['#optLength', '#optWords', '#optPov', '#optTense', '#optLang', '#optExplicit', '#optDark', '#optStyle'].forEach((sel) =>
+['#optLength', '#optFlow', '#optWords', '#optPov', '#optTense', '#optLang', '#optExplicit', '#optDark', '#optStyle'].forEach((sel) =>
   $(sel).addEventListener('change', onOptionsChange),
 );
 
@@ -1021,6 +1135,31 @@ $('#titleInput').addEventListener('change', async () => {
     toast(e.message);
   }
 });
+
+async function writeNextFlow() {
+  const s = state.story;
+  if (!s || state.busy) return;
+  const i = s.chapters.length;
+  const plan = s.outline[i];
+  const dir = await askText(
+    `Scrivi il capitolo ${i + 1}${plan ? `: «${plan.title}»` : ''}`,
+    'Vuoi aggiungere indicazioni per questo capitolo? (facoltative: lascia vuoto per seguire la scaletta)',
+  );
+  if (dir === null) return;
+  switchTab('chat');
+  runGeneration('continue', { direction: dir.trim() });
+}
+
+async function reviseFlow() {
+  if (!state.story || state.busy) return;
+  const instr = await askText(
+    'Modifica il progetto',
+    'Cosa vuoi cambiare? Lascia vuoto per applicare le modifiche di cui avete parlato in chat. I capitoli già scritti non cambiano.',
+  );
+  if (instr === null) return;
+  switchTab('chat');
+  runGeneration('revise', { instructions: instr.trim() });
+}
 
 async function continueFlow() {
   if (!state.story || state.busy) return;
@@ -1037,6 +1176,8 @@ $('#quickActions').addEventListener('click', (e) => {
   const q = e.target.closest('[data-quick]')?.dataset.quick;
   if (q === 'continue') continueFlow();
   if (q === 'resume') runGeneration('generate', {});
+  if (q === 'next') writeNextFlow();
+  if (q === 'revise') reviseFlow();
 });
 $('#continueBtn').addEventListener('click', continueFlow);
 

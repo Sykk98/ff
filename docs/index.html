@@ -42,18 +42,25 @@
             <div class="options-grid">
               <label>Lunghezza
                 <select id="optLength">
+                  <option value="auto" selected>Come scritto nella richiesta</option>
                   <option value="flash">Flash fiction (~800 parole)</option>
-                  <option value="breve" selected>Racconto breve (~2.000)</option>
+                  <option value="breve">Racconto breve (~2.000)</option>
                   <option value="medio">Racconto (~5.000)</option>
                   <option value="lungo">Racconto lungo (~12.000)</option>
                   <option value="novella">Novella (~25.000)</option>
                   <option value="romanzo">Romanzo (~50.000)</option>
                   <option value="custom">Personalizzata…</option>
-                  <option value="auto">Dal testo della richiesta</option>
                 </select>
               </label>
               <label id="customWordsWrap" hidden>Parole totali
                 <input type="number" id="optWords" min="200" step="100" value="3000" />
+              </label>
+              <label>Come procedere
+                <select id="optFlow">
+                  <option value="auto">Automatico</option>
+                  <option value="plan">Prima il progetto, poi un capitolo alla volta</option>
+                  <option value="all">Scrivi subito tutta la storia</option>
+                </select>
               </label>
               <label>Punto di vista
                 <select id="optPov">
@@ -96,8 +103,10 @@
           </details>
 
           <div class="quick" id="quickActions" hidden>
+            <button class="chip" data-quick="next" id="writeNextBtn" hidden>✍️ Scrivi il capitolo 1</button>
             <button class="chip" data-quick="continue">➕ Continua la storia</button>
             <button class="chip" data-quick="resume" hidden id="resumeBtn">▶️ Riprendi generazione</button>
+            <button class="chip" data-quick="revise" id="reviseBtn" hidden>🛠️ Modifica il progetto</button>
           </div>
 
           <form class="input-row" id="chatForm">

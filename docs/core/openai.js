@@ -36,6 +36,16 @@ function networkError(url, err) {
   return new Error(`Impossibile contattare ${url}: ${err.message}`);
 }
 
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(t);
+      reject(Object.assign(new Error('Interrotto'), { name: 'AbortError' }));
+    }, { once: true });
+  });
+}
+
 /** Itera le righe di un body in streaming (compatibile anche con Safari, che non itera i ReadableStream). */
 async function* lines(body) {
   const reader = body.getReader();
@@ -77,11 +87,19 @@ export async function* streamOpenAI(settings, messages, { maxTokens, temperature
 
   const url = settings.baseUrl.replace(/\/+$/, '') + '/chat/completions';
   let res;
-  try {
-    res = await fetch(url, { method: 'POST', headers: buildHeaders(settings), body: JSON.stringify(body), signal });
-  } catch (err) {
-    if (err.name === 'AbortError') throw err;
-    throw networkError(url, err);
+  // Limite di richieste (frequente sui piani gratuiti): attende e riprova fino a 3 volte.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetch(url, { method: 'POST', headers: buildHeaders(settings), body: JSON.stringify(body), signal });
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      throw networkError(url, err);
+    }
+    if (res.status !== 429 || attempt >= 3) break;
+    const retryAfter = Number(res.headers.get('retry-after'));
+    const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 60) * 1000 : [3000, 8000, 20000][attempt];
+    await res.body?.cancel?.().catch(() => {});
+    await sleep(wait, signal);
   }
 
   if (!res.ok) {
