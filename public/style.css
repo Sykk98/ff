@@ -183,3 +183,35 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
   .options-grid { grid-template-columns: 1fr 1fr; }
   .options-grid label.check { grid-column: 1 / -1; }
 }
+
+/* ---------- impostazioni: provider e Ollama ---------- */
+dialog { max-height: calc(100dvh - 32px); }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--bg3); padding: 4px; border-radius: 10px; }
+.seg-btn { background: none; border: 0; color: var(--muted); padding: 8px; border-radius: 8px; cursor: pointer; font: inherit; }
+.seg-btn.active { background: var(--accent); color: #fff; }
+#ollamaSection, #openaiSection { display: flex; flex-direction: column; gap: 12px; }
+.ollama-status { font-size: 13px; padding: 8px 12px; border-radius: 8px; background: var(--bg3); }
+.ollama-status.ok { color: var(--ok); }
+.ollama-status.err { color: #ff8a8a; }
+.install-box { background: var(--bg3); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 14px; }
+.install-box ol { margin: 8px 0 10px; padding-left: 20px; }
+.install-box li { margin-bottom: 4px; }
+.install-box a, .install-box code { color: var(--accent2); }
+.pull-box { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.pull-title { font-size: 13px; color: var(--muted); }
+.recommended { display: grid; gap: 6px; }
+.rec {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px; text-align: left;
+  background: var(--bg3); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--text); font: inherit; cursor: pointer;
+}
+.rec:hover { border-color: var(--accent); }
+.rec .rec-name { font-weight: 600; font-size: 14px; }
+.rec .rec-note { font-size: 12px; color: var(--muted); }
+.rec .rec-meta { font-size: 12px; color: var(--muted); white-space: nowrap; text-align: right; }
+.rec.installed { opacity: .6; cursor: default; }
+.rec.installed .rec-meta::before { content: '✓ installato · '; color: var(--ok); }
+.pull-progress { display: flex; flex-direction: column; gap: 4px; }
+.pull-label { font-size: 13px; display: flex; justify-content: space-between; gap: 8px; }
+.link { background: none; border: 0; color: var(--accent2); cursor: pointer; font: inherit; font-size: 12px; padding: 0; text-decoration: underline; }
+.advanced summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.advanced[open] { display: flex; flex-direction: column; gap: 10px; }

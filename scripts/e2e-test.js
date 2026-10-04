@@ -6,7 +6,8 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fanfic-test-'));
-const env = { ...process.env, DATA_DIR: dataDir, PORT: '3456', MOCK_PORT: '3998', LLM_BASE_URL: 'http://localhost:3998/v1', LLM_MODEL: 'mock', LLM_API_KEY: '' };
+const env = { ...process.env, DATA_DIR: dataDir, PORT: '3456', MOCK_PORT: '3998', OLLAMA_URL: 'http://localhost:3998', OLLAMA_MODEL: 'mock-nemo' };
+for (const k of ['LLM_PROVIDER', 'LLM_BASE_URL', 'LLM_MODEL', 'LLM_API_KEY']) delete env[k];
 const procs = [spawn('node', ['scripts/mock-llm.js'], { env, stdio: 'inherit' }), spawn('node', ['server.js'], { env, stdio: 'inherit' })];
 const base = 'http://127.0.0.1:3456';
 
@@ -36,7 +37,22 @@ async function stream(p, body) {
 try {
   await waitUp();
   const settings = await json('/api/settings');
-  assert.equal(settings.model, 'mock');
+  assert.equal(settings.provider, 'ollama', 'Ollama deve essere il provider predefinito');
+  assert.equal(settings.activeModel, 'mock-nemo');
+  assert.equal(settings.configured, true);
+
+  // stato di Ollama e download di un modello
+  const status = await json('/api/ollama/status');
+  assert.equal(status.running, true);
+  assert.ok(status.models.some((m) => m.name === 'mock-nemo:latest'));
+  assert.ok(status.recommended.length >= 3);
+  const down = await json('/api/ollama/status?url=' + encodeURIComponent('http://localhost:1'));
+  assert.equal(down.running, false);
+  const pull = await stream('/api/ollama/pull', { name: 'mistral-nemo' });
+  assert.ok(pull.some((e) => e.type === 'progress' && e.total > 0), 'manca l\'avanzamento del download');
+  assert.ok(pull.at(-1).models.some((m) => m.name === 'mistral-nemo:latest'));
+  const badName = await fetch(base + '/api/ollama/pull', { method: 'POST', body: JSON.stringify({ name: 'x; rm -rf' }) });
+  assert.equal(badName.status, 400);
 
   const test = await json('/api/settings/test', { method: 'POST' });
   assert.equal(test.reply, 'OK');
@@ -55,6 +71,9 @@ try {
   assert.equal(done.chapters.length, 3);
   assert.ok(!done.chapters[0].content.includes('<think>'), 'i blocchi <think> devono essere filtrati');
   assert.ok(done.chapters.every((c) => c.content.length > 100));
+  const last = await (await fetch('http://localhost:3998/__last-ollama')).json();
+  assert.equal(last.options.num_ctx, 12288, 'il contesto deve essere passato a Ollama');
+  assert.equal(last.keep_alive, '30m');
 
   const cont = await stream(`/api/stories/${story.id}/continue`, { direction: 'arriva un drago' });
   assert.equal(cont.at(-1).story.chapters.length, 4);
@@ -62,6 +81,13 @@ try {
   const rw = await stream(`/api/stories/${story.id}/rewrite`, { index: 0, instructions: 'più dark' });
   assert.ok(rw.at(-1).story.chapters[0].previous);
 
+  // modello Ollama inesistente: errore comprensibile
+  await json('/api/settings', { method: 'POST', body: { ollamaModel: 'non-esiste' } });
+  const missing = await stream(`/api/stories/${story.id}/chat`, { message: 'ciao' });
+  assert.match(missing.find((e) => e.type === 'error').message, /Scarica il modello/);
+
+  // passaggio al provider compatibile OpenAI
+  await json('/api/settings', { method: 'POST', body: { provider: 'openai', baseUrl: 'http://localhost:3998/v1', model: 'mock' } });
   const chat = await stream(`/api/stories/${story.id}/chat`, { message: 'Scrivi una scena extra' });
   assert.ok(chat.some((e) => e.type === 'delta'));
   const after = await json(`/api/stories/${story.id}`);

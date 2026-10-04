@@ -486,7 +486,7 @@ function setBusy(b) {
 }
 
 async function ensureConfigured() {
-  if (state.settings?.model && state.settings?.baseUrl) return true;
+  if (state.settings?.configured) return true;
   toast('Prima configura il modello AI nelle Impostazioni.');
   openSettings();
   return false;
@@ -687,8 +687,28 @@ async function loadSettings() {
   state.settings = await api('/api/settings');
 }
 
+let dialogProvider = 'ollama';
+let ollamaInfo = { running: false, models: [], recommended: [] };
+let pullController = null;
+
+function setProvider(p) {
+  dialogProvider = p;
+  $$('.seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.provider === p));
+  $('#ollamaSection').hidden = p !== 'ollama';
+  $('#openaiSection').hidden = p !== 'openai';
+  if (p === 'ollama') refreshOllama();
+}
+
+function setResult(text, kind = '') {
+  const r = $('#testResult');
+  r.className = 'test-result' + (kind ? ' ' + kind : '');
+  r.textContent = text;
+}
+
 function openSettings() {
   const s = state.settings || {};
+  $('#ollamaUrl').value = s.ollamaUrl || 'http://localhost:11434';
+  $('#setNumCtx').value = s.numCtx ?? 12288;
   $('#setBaseUrl').value = s.baseUrl || '';
   $('#setApiKey').value = '';
   $('#keyHint').textContent = s.apiKeySet ? `(salvata ${s.apiKeyHint})` : '(non impostata)';
@@ -697,19 +717,141 @@ function openSettings() {
   $('#setMaxTokens').value = s.maxTokens ?? 6000;
   $('#setWpc').value = s.wordsPerChapter ?? 2000;
   $('#presetSelect').value = '';
-  $('#testResult').textContent = '';
-  $('#testResult').className = 'test-result';
-  $('#settingsDialog').showModal();
+  setResult('');
+  setProvider(s.provider || 'ollama');
+  if (!$('#settingsDialog').open) $('#settingsDialog').showModal();
 }
+
+const sameModel = (a, b) => {
+  const norm = (x) => String(x || '').toLowerCase().replace(/:latest$/, '');
+  return norm(a) === norm(b);
+};
+
+async function refreshOllama() {
+  const st = $('#ollamaStatus');
+  st.className = 'ollama-status';
+  st.textContent = 'Controllo Ollama…';
+  try {
+    const url = encodeURIComponent($('#ollamaUrl').value.trim());
+    ollamaInfo = await api(`/api/ollama/status?url=${url}`);
+  } catch (e) {
+    ollamaInfo = { running: false, error: e.message, models: [], recommended: [] };
+  }
+  const { running, models, version } = ollamaInfo;
+  $('#ollamaInstall').hidden = running;
+  if (running) {
+    st.className = 'ollama-status ok';
+    st.textContent = `✓ Ollama attivo${version ? ` (versione ${version})` : ''} · ${models.length} ${models.length === 1 ? 'modello installato' : 'modelli installati'}`;
+  } else {
+    st.className = 'ollama-status err';
+    st.textContent = '✗ Ollama non risponde. Installalo o avvialo, poi premi «Ricontrolla».';
+  }
+
+  // elenco modelli installati
+  const sel = $('#ollamaModel');
+  const wanted = sel.value || state.settings?.ollamaModel || '';
+  if (!models.length) {
+    sel.innerHTML = '<option value="">— nessun modello installato —</option>';
+  } else {
+    sel.innerHTML = models
+      .map((m) => {
+        const meta = [m.params, m.sizeGb ? `${m.sizeGb} GB` : ''].filter(Boolean).join(' · ');
+        return `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}${meta ? ` (${escapeHtml(meta)})` : ''}</option>`;
+      })
+      .join('');
+    const match = models.find((m) => sameModel(m.name, wanted));
+    const recommendedInstalled = models.find((m) => (ollamaInfo.recommended || []).some((r) => sameModel(r.name, m.name)));
+    sel.value = (match || recommendedInstalled || models[0]).name;
+  }
+
+  // modelli consigliati
+  $('#recommendedModels').innerHTML = (ollamaInfo.recommended || [])
+    .map((r) => {
+      const installed = models.some((m) => sameModel(m.name, r.name));
+      return `<button type="button" class="rec ${installed ? 'installed' : ''}" data-model="${escapeHtml(r.name)}" ${installed ? 'disabled' : ''}>
+        <span><span class="rec-name">${escapeHtml(r.label)}</span><br><span class="rec-note">${escapeHtml(r.note)}</span></span>
+        <span class="rec-meta">${escapeHtml(r.size)}<br>GPU ${escapeHtml(r.vram)}</span>
+      </button>`;
+    })
+    .join('');
+  if (ollamaInfo.pulling && !pullController) {
+    $('#pullProgress').hidden = false;
+    $('#pullStatus').textContent = `Download di ${ollamaInfo.pulling} in corso…`;
+  }
+}
+
+const gb = (n) => (n / 1e9).toFixed(n >= 1e10 ? 0 : 1);
+
+async function pullModel(name) {
+  if (!name) return;
+  if (pullController) return toast('C\'è già un download in corso.');
+  if (!ollamaInfo.running) return toast('Ollama non è attivo: avvialo prima di scaricare un modello.');
+  pullController = new AbortController();
+  $('#pullProgress').hidden = false;
+  $('#pullBtn').disabled = true;
+  $('#pullStatus').textContent = `Preparo il download di ${name}…`;
+  $('#pullBar').style.width = '0';
+  let failed = false;
+  try {
+    await streamApi(
+      '/api/ollama/pull',
+      { name, url: $('#ollamaUrl').value.trim() },
+      (ev) => {
+        if (ev.type === 'progress') {
+          if (ev.total) {
+            const pct = Math.round((ev.completed / ev.total) * 100);
+            $('#pullBar').style.width = pct + '%';
+            $('#pullStatus').textContent = `Scarico ${name}: ${gb(ev.completed)} di ${gb(ev.total)} GB (${pct}%)`;
+          } else {
+            const map = { 'pulling manifest': 'Leggo le informazioni del modello…', 'verifying sha256 digest': 'Verifico i file…', 'writing manifest': 'Completo l\'installazione…', success: 'Installato!' };
+            $('#pullStatus').textContent = map[ev.status] || ev.status;
+          }
+        }
+        if (ev.type === 'error') throw new Error(ev.message);
+      },
+      pullController.signal,
+    );
+  } catch (e) {
+    failed = true;
+    if (e.name !== 'AbortError') setResult('✗ ' + e.message, 'err');
+  } finally {
+    pullController = null;
+    $('#pullBtn').disabled = false;
+    $('#pullProgress').hidden = true;
+  }
+  if (!failed) {
+    $('#ollamaModel').value = '';
+    state.settings = { ...state.settings, ollamaModel: name };
+    await refreshOllama();
+    setResult(`✓ ${name} installato e selezionato. Premi Salva.`, 'ok');
+  }
+}
+
+$$('.seg-btn').forEach((b) => b.addEventListener('click', () => setProvider(b.dataset.provider)));
+$('#ollamaRecheck').addEventListener('click', refreshOllama);
+$('#ollamaUrl').addEventListener('change', refreshOllama);
+$('#recommendedModels').addEventListener('click', (e) => {
+  const btn = e.target.closest('.rec');
+  if (btn && !btn.disabled) pullModel(btn.dataset.model);
+});
+$('#pullBtn').addEventListener('click', () => pullModel($('#pullName').value.trim()));
+$('#pullCancel').addEventListener('click', () => {
+  pullController?.abort();
+  fetch('/api/ollama/pull', { method: 'DELETE' }).catch(() => {});
+});
 
 async function saveSettingsFromForm() {
   const body = {
+    provider: dialogProvider,
+    ollamaUrl: $('#ollamaUrl').value.trim(),
+    numCtx: $('#setNumCtx').value,
     baseUrl: $('#setBaseUrl').value.trim(),
     model: $('#setModel').value.trim(),
     temperature: $('#setTemp').value,
     maxTokens: $('#setMaxTokens').value,
     wordsPerChapter: $('#setWpc').value,
   };
+  if (dialogProvider === 'ollama' && $('#ollamaModel').value) body.ollamaModel = $('#ollamaModel').value;
   const key = $('#setApiKey').value.trim();
   if (key) body.apiKey = key;
   state.settings = await api('/api/settings', { method: 'POST', body });
@@ -724,44 +866,47 @@ $('#presetSelect').addEventListener('change', (e) => {
 $('#saveSettings').addEventListener('click', async () => {
   try {
     await saveSettingsFromForm();
+    if (!state.settings.configured) {
+      return setResult(
+        dialogProvider === 'ollama' ? 'Scarica e seleziona un modello prima di salvare.' : 'Inserisci il nome del modello.',
+        'err',
+      );
+    }
     $('#settingsDialog').close();
-    toast('Impostazioni salvate');
+    toast(`Impostazioni salvate · modello: ${state.settings.activeModel}`);
   } catch (e) {
-    $('#testResult').className = 'test-result err';
-    $('#testResult').textContent = e.message;
+    setResult(e.message, 'err');
   }
 });
 
 $('#cancelSettings').addEventListener('click', () => $('#settingsDialog').close());
 
 $('#testBtn').addEventListener('click', async () => {
-  const r = $('#testResult');
-  r.className = 'test-result';
-  r.textContent = 'Provo la connessione…';
+  setResult(
+    dialogProvider === 'ollama'
+      ? 'Carico il modello in memoria e lo provo. La prima volta può richiedere un minuto…'
+      : 'Provo la connessione…',
+  );
   try {
     await saveSettingsFromForm();
+    if (!state.settings.configured) throw new Error('Nessun modello selezionato.');
     const res = await api('/api/settings/test', { method: 'POST' });
-    r.className = 'test-result ok';
-    r.textContent = `✓ Funziona (${res.ms} ms). Risposta: "${res.reply}"`;
+    setResult(`✓ Funziona (${(res.ms / 1000).toFixed(1)} s). Risposta: "${res.reply}"`, 'ok');
   } catch (e) {
-    r.className = 'test-result err';
-    r.textContent = '✗ ' + e.message;
+    setResult('✗ ' + e.message, 'err');
   }
 });
 
 $('#loadModelsBtn').addEventListener('click', async () => {
-  const r = $('#testResult');
-  r.className = 'test-result';
-  r.textContent = 'Carico i modelli…';
+  setResult('Carico i modelli…');
   try {
     await saveSettingsFromForm();
     const { models } = await api('/api/models');
     $('#modelList').innerHTML = models.map((m) => `<option value="${escapeHtml(m)}">`).join('');
-    r.textContent = `${models.length} modelli disponibili: inizia a scrivere nel campo Modello per filtrarli.`;
+    setResult(`${models.length} modelli disponibili: inizia a scrivere nel campo Modello per filtrarli.`);
     $('#setModel').focus();
   } catch (e) {
-    r.className = 'test-result err';
-    r.textContent = '✗ ' + e.message;
+    setResult('✗ ' + e.message, 'err');
   }
 });
 
@@ -856,5 +1001,5 @@ window.addEventListener('beforeunload', (e) => {
   } else {
     newStory();
   }
-  if (!state.settings?.model) openSettings();
+  if (!state.settings?.configured) openSettings();
 })();

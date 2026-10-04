@@ -12,6 +12,8 @@ const store = await import('./lib/store.js');
 const { generateStory, continueStory, rewriteChapter, streamInto } = await import('./lib/generator.js');
 const { chatSystemPrompt } = await import('./lib/prompts.js');
 const { complete } = await import('./lib/llm.js');
+const ollama = await import('./lib/ollama.js');
+let activePull = null; // { name, ac } — un solo download di modello alla volta
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -161,7 +163,59 @@ async function handleApi(req, res, url) {
     }
   }
 
-  // Elenco modelli dal provider
+  // Ollama: stato, modelli installati, download
+  if (parts[0] === 'ollama') {
+    const settings = await store.getSettings();
+    const oUrl = url.searchParams.get('url') || settings.ollamaUrl;
+    if (parts[1] === 'status' && method === 'GET') {
+      const status = await ollama.ollamaStatus(oUrl);
+      return sendJson(res, 200, {
+        ...status,
+        recommended: ollama.RECOMMENDED_MODELS,
+        pulling: activePull?.name || null,
+      });
+    }
+    if (parts[1] === 'pull' && method === 'POST') {
+      const body = await readBody(req);
+      const name = String(body.name || '').trim();
+      if (!/^[\w.\-/:]+$/.test(name)) return sendJson(res, 400, { error: 'Nome del modello non valido' });
+      if (activePull) return sendJson(res, 409, { error: `Sto già scaricando ${activePull.name}.` });
+      const { emit, signal, ac, end } = startStream(req, res);
+      activePull = { name, ac };
+      try {
+        let lastSent = 0;
+        let lastStatus = '';
+        await ollama.pullOllamaModel(
+          body.url || oUrl,
+          name,
+          (p) => {
+            // limita gli aggiornamenti a ~5 al secondo, ma invia sempre i cambi di fase e il 100%
+            const now = Date.now();
+            const changed = p.status !== lastStatus || (p.total && p.completed === p.total);
+            if (changed || now - lastSent > 200) {
+              lastSent = now;
+              lastStatus = p.status;
+              emit({ type: 'progress', status: p.status, total: p.total || 0, completed: p.completed || 0 });
+            }
+          },
+          signal,
+        );
+        emit({ type: 'done', models: await ollama.listOllamaModels(body.url || oUrl) });
+      } catch (err) {
+        emit(signal.aborted ? { type: 'aborted' } : { type: 'error', message: err.message });
+      } finally {
+        activePull = null;
+        end();
+      }
+      return;
+    }
+    if (parts[1] === 'pull' && method === 'DELETE') {
+      activePull?.ac.abort();
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+
+  // Elenco modelli dal provider compatibile OpenAI
   if (parts[0] === 'models' && method === 'GET') {
     const s = await store.getSettings();
     const r = await fetch(s.baseUrl.replace(/\/+$/, '') + '/models', {

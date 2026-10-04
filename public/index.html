@@ -126,35 +126,86 @@
   <dialog id="settingsDialog">
     <form method="dialog" class="dialog" id="settingsForm">
       <h2>Impostazioni del modello AI</h2>
-      <p class="muted">Funziona con qualsiasi API compatibile OpenAI. Il tipo di contenuti che otterrai dipende dalle regole del provider e del modello scelto: per contenuti per adulti usa un provider e un modello che li consentono, oppure un modello locale.</p>
 
-      <label>Provider rapido
-        <select id="presetSelect">
-          <option value="">— scegli un preset —</option>
-          <option value="https://openrouter.ai/api/v1">OpenRouter</option>
-          <option value="http://localhost:11434/v1">Ollama (locale)</option>
-          <option value="http://localhost:1234/v1">LM Studio (locale)</option>
-          <option value="http://localhost:8080/v1">llama.cpp / KoboldCpp (locale)</option>
-          <option value="https://api.openai.com/v1">OpenAI</option>
-          <option value="https://api.deepseek.com/v1">DeepSeek</option>
-          <option value="https://api.mistral.ai/v1">Mistral</option>
-          <option value="https://api.together.xyz/v1">Together AI</option>
-          <option value="https://api.groq.com/openai/v1">Groq</option>
-        </select>
-      </label>
-      <label>URL base dell'API
-        <input type="url" id="setBaseUrl" placeholder="https://openrouter.ai/api/v1" required />
-      </label>
-      <label>Chiave API <span class="muted" id="keyHint"></span>
-        <input type="password" id="setApiKey" placeholder="lascia vuoto per non cambiarla" autocomplete="off" />
-      </label>
-      <label>Modello
-        <div class="row">
-          <input type="text" id="setModel" list="modelList" placeholder="nome del modello" required />
-          <button type="button" class="btn" id="loadModelsBtn">Carica elenco</button>
+      <div class="seg" role="tablist">
+        <button type="button" class="seg-btn" data-provider="ollama">🖥️ Ollama (locale, gratis)</button>
+        <button type="button" class="seg-btn" data-provider="openai">☁️ Servizio online</button>
+      </div>
+
+      <!-- OLLAMA -->
+      <div id="ollamaSection">
+        <div class="ollama-status" id="ollamaStatus">Controllo Ollama…</div>
+
+        <div id="ollamaInstall" class="install-box" hidden>
+          <strong>Come installare Ollama</strong>
+          <ol>
+            <li>Scaricalo da <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com/download</a> (Windows, Mac, Linux) e installalo.</li>
+            <li>Avvialo: su Windows e Mac parte da solo, su Linux esegui <code>ollama serve</code>.</li>
+            <li>Torna qui e premi «Ricontrolla», poi scarica un modello qui sotto.</li>
+          </ol>
+          <button type="button" class="btn" id="ollamaRecheck">🔄 Ricontrolla</button>
         </div>
-        <datalist id="modelList"></datalist>
-      </label>
+
+        <label>Modello installato
+          <select id="ollamaModel"><option value="">— nessun modello installato —</option></select>
+        </label>
+
+        <div class="pull-box">
+          <div class="pull-title">Scarica un modello</div>
+          <div class="recommended" id="recommendedModels"></div>
+          <div class="row">
+            <input type="text" id="pullName" placeholder="oppure scrivi un nome, es. mistral-nemo o hf.co/utente/modello-GGUF" />
+            <button type="button" class="btn" id="pullBtn">⬇️ Scarica</button>
+          </div>
+          <div class="pull-progress" id="pullProgress" hidden>
+            <div class="pull-label"><span id="pullStatus"></span> <button type="button" class="link" id="pullCancel">annulla</button></div>
+            <div class="progress-bar"><div id="pullBar"></div></div>
+          </div>
+        </div>
+
+        <details class="advanced">
+          <summary>Avanzate</summary>
+          <label>Indirizzo di Ollama
+            <input type="url" id="ollamaUrl" placeholder="http://localhost:11434" />
+          </label>
+          <label>Contesto (token)
+            <input type="number" id="setNumCtx" min="2048" step="1024" />
+            <span class="muted">Memoria di lavoro del modello. 12288 va bene per quasi tutti. Abbassalo a 8192 se la scheda video ha poca memoria, alzalo per storie con molti capitoli.</span>
+          </label>
+        </details>
+      </div>
+
+      <!-- SERVIZIO ONLINE -->
+      <div id="openaiSection" hidden>
+        <p class="muted">Qualsiasi API compatibile OpenAI. I contenuti ammessi dipendono dalle regole del servizio e del modello scelto.</p>
+        <label>Servizio
+          <select id="presetSelect">
+            <option value="">— scegli un preset —</option>
+            <option value="https://openrouter.ai/api/v1">OpenRouter</option>
+            <option value="https://api.mistral.ai/v1">Mistral</option>
+            <option value="https://api.deepseek.com/v1">DeepSeek</option>
+            <option value="http://localhost:1234/v1">LM Studio (locale)</option>
+            <option value="http://localhost:8080/v1">llama.cpp / KoboldCpp (locale)</option>
+            <option value="https://api.together.xyz/v1">Together AI</option>
+            <option value="https://api.groq.com/openai/v1">Groq</option>
+            <option value="https://api.openai.com/v1">OpenAI</option>
+          </select>
+        </label>
+        <label>URL base dell'API
+          <input type="url" id="setBaseUrl" placeholder="https://openrouter.ai/api/v1" />
+        </label>
+        <label>Chiave API <span class="muted" id="keyHint"></span>
+          <input type="password" id="setApiKey" placeholder="lascia vuoto per non cambiarla" autocomplete="off" />
+        </label>
+        <label>Modello
+          <div class="row">
+            <input type="text" id="setModel" list="modelList" placeholder="nome del modello" />
+            <button type="button" class="btn" id="loadModelsBtn">Carica elenco</button>
+          </div>
+          <datalist id="modelList"></datalist>
+        </label>
+      </div>
+
       <div class="grid3">
         <label>Temperatura
           <input type="number" id="setTemp" min="0" max="2" step="0.05" />

@@ -19,36 +19,51 @@ Scrivi nella chat trama, personaggi e lunghezza: l'AI prepara una scaletta e scr
 ## Requisiti
 
 - Node.js 18 o superiore. Non servono altre dipendenze, quindi niente `npm install`.
-- Un modello AI raggiungibile tramite un'API compatibile OpenAI.
+- [Ollama](https://ollama.com/download) per usare un modello AI sul tuo computer, gratis e senza filtri esterni. In alternativa, un servizio online compatibile con l'API OpenAI.
 
-## Avvio
+## Avvio rapido con Ollama
 
-```bash
-npm start
-```
+1. Installa Ollama da [ollama.com/download](https://ollama.com/download). Su Windows e Mac parte da solo; su Linux avvialo con `ollama serve`.
+2. Avvia l'app:
 
-Apri http://localhost:3000. Al primo avvio si apre la finestra **Impostazioni**: scegli il provider, inserisci chiave e nome del modello, premi «Prova connessione» e salva.
+   ```bash
+   npm start
+   ```
 
-## Quale modello usare
+3. Apri http://localhost:3000. Si apre la finestra **Impostazioni** sulla scheda Ollama.
+4. Scegli un modello dall'elenco dei consigliati e premi per scaricarlo. L'avanzamento compare nella finestra.
+5. Premi «Prova connessione», poi Salva. Il primo caricamento del modello in memoria può richiedere un minuto.
 
-L'app funziona con qualsiasi endpoint `/chat/completions` compatibile OpenAI. **Il tipo di contenuti che ottieni dipende dalle regole del provider e del modello**: molti modelli commerciali rifiutano scene esplicite o molto violente. Le strade più semplici sono:
+Tutto resta sul tuo computer: nessun servizio esterno legge le tue storie e non ci sono limiti di utilizzo.
 
-| Opzione | URL base | Note |
-|---|---|---|
-| OpenRouter | `https://openrouter.ai/api/v1` | Un'unica chiave per centinaia di modelli. Scegli un modello la cui policy ammette contenuti per adulti. |
-| Ollama (locale) | `http://localhost:11434/v1` | Gratis e privato, gira sul tuo PC. Nessuna chiave. |
-| LM Studio (locale) | `http://localhost:1234/v1` | Interfaccia grafica per scaricare e avviare modelli locali. |
-| llama.cpp / KoboldCpp | `http://localhost:8080/v1` | Server locali leggeri. |
+### Quale modello scaricare
 
-Con «Carica elenco» nelle impostazioni vedi i modelli disponibili sul provider.
+Dipende dalla memoria della scheda video (VRAM):
 
-Puoi anche configurare tutto con un file `.env` (vedi `.env.example`).
+| Modello | Download | VRAM consigliata | Note |
+|---|---|---|---|
+| Dolphin Mistral Nemo 12B | ~7 GB | 12 GB | Consigliato. Non censurato, buon italiano. |
+| Mistral Nemo 12B | ~7 GB | 12 GB | Ufficiale, ottimo italiano, pochi filtri. |
+| Dolphin 3.0 (Llama 3.1 8B) | ~5 GB | 8 GB | Non censurato e leggero, italiano meno curato. |
+| Mistral Small 24B | ~14 GB | 16–24 GB | La qualità migliore. |
+
+Senza una scheda video adatta i modelli girano sul processore, ma molto più lentamente. Nel campo «oppure scrivi un nome» puoi scaricare qualsiasi altro modello della libreria di Ollama, oppure un modello GGUF da Hugging Face con il formato `hf.co/utente/repository`.
+
+### Perché l'app usa l'API nativa di Ollama
+
+L'app comunica con Ollama tramite la sua API nativa, non tramite quella compatibile OpenAI. Solo così può impostare il **contesto**, cioè quanto testo il modello tiene a mente. Ollama di default usa 4.096 token sulle schede con meno di 24 GB, troppo pochi per scaletta, fine del capitolo precedente e nuovo capitolo insieme: il prompt verrebbe tagliato senza avviso. L'app usa 12.288 token, modificabili in Impostazioni → Avanzate. Abbassali a 8.192 se la scheda video ha poca memoria.
+
+## Servizi online
+
+Nella scheda «Servizio online» delle Impostazioni puoi usare qualsiasi API compatibile OpenAI: OpenRouter, Mistral, DeepSeek, LM Studio, llama.cpp, Groq e altri. **Il tipo di contenuti che ottieni dipende dalle regole del servizio e del modello**: molti modelli commerciali rifiutano scene esplicite o molto violente.
 
 ### Impostazioni utili
 
 - **Parole per capitolo** (predefinito 2000): decide in quanti capitoli viene divisa la storia. Un romanzo da 50.000 parole diventa 25 capitoli.
-- **Max token per risposta** (predefinito 6000): abbassalo se il provider dà errore sul limite di token. Se un capitolo si interrompe, l'app chiede automaticamente al modello di continuarlo.
+- **Max token per risposta** (predefinito 6000): se un capitolo si interrompe, l'app chiede automaticamente al modello di continuarlo.
 - **Temperatura**: più alta significa prosa più creativa e imprevedibile.
+
+Puoi anche configurare tutto con un file `.env` (vedi `.env.example`).
 
 ## Regola sui contenuti
 
@@ -56,14 +71,14 @@ L'app permette contenuti per adulti, ma il prompt di sistema vieta sempre conten
 
 ## Provare senza chiave API
 
-Un finto provider genera testo segnaposto per vedere l'interfaccia in azione:
+Un finto provider genera testo segnaposto per vedere l'interfaccia in azione. Imita sia Ollama sia le API compatibili OpenAI:
 
 ```bash
 npm run mock    # in un terminale
 npm start       # in un altro
 ```
 
-Nelle impostazioni usa URL `http://localhost:3999/v1` e modello `mock`.
+Nelle impostazioni, scheda Ollama, apri Avanzate e usa l'indirizzo `http://localhost:3999`. Il modello finto `mock-nemo` risulta già installato, e i download dei modelli consigliati sono simulati.
 
 ## Test
 
@@ -71,13 +86,14 @@ Nelle impostazioni usa URL `http://localhost:3999/v1` e modello `mock`.
 npm test
 ```
 
-Avvia il finto provider e il server, poi verifica scaletta, generazione dei capitoli, continuazione, riscrittura, chat ed esportazione.
+Avvia il finto provider e il server, poi verifica stato e download dei modelli Ollama, passaggio del contesto, scaletta, generazione dei capitoli, continuazione, riscrittura, chat, cambio di provider ed esportazione.
 
 ## Struttura
 
 ```
 server.js          server HTTP e API
-lib/llm.js         client per API compatibili OpenAI, in streaming
+lib/llm.js         client in streaming: sceglie tra Ollama e API compatibili OpenAI
+lib/ollama.js      API nativa di Ollama: chat, modelli installati, download
 lib/prompts.js     prompt di sistema, scaletta, capitoli, riscritture, chat
 lib/generator.js   orchestrazione: richiesta → scaletta → capitoli
 lib/store.js       salvataggio di storie e impostazioni in data/

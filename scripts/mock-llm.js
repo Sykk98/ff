@@ -1,5 +1,8 @@
-// Finto provider compatibile OpenAI, utile per provare l'app senza chiave API.
-// Uso: npm run mock   ->   poi in Impostazioni: URL http://localhost:3999/v1, modello "mock"
+// Finto provider AI per provare l'app senza modelli veri.
+// Imita sia l'API compatibile OpenAI (/v1/...) sia l'API nativa di Ollama (/api/...).
+// Uso: npm run mock, poi nelle Impostazioni:
+//   - Ollama: indirizzo http://localhost:3999 (in Avanzate), modello "mock-nemo"
+//   - Servizio online: URL http://localhost:3999/v1, modello "mock"
 import http from 'node:http';
 
 const PORT = Number(process.env.MOCK_PORT) || 3999;
@@ -41,8 +44,70 @@ function reply(messages) {
   return out;
 }
 
+const installed = new Set(['mock-nemo:latest']);
+let lastOllamaRequest = null;
+
+async function readJson(req) {
+  let body = '';
+  for await (const c of req) body += c;
+  return body ? JSON.parse(body) : {};
+}
+
+async function handleOllama(req, res) {
+  const nd = (obj) => res.write(JSON.stringify(obj) + '\n');
+  if (req.url === '/api/version') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ version: '0.0.0-mock' }));
+  }
+  if (req.url === '/api/tags') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({
+      models: [...installed].map((name) => ({ name, model: name, size: 7.1e9, details: { parameter_size: '12B', quantization_level: 'Q4_0' } })),
+    }));
+  }
+  if (req.url === '/api/pull') {
+    const { model } = await readJson(req);
+    res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+    nd({ status: 'pulling manifest' });
+    const total = 5e8;
+    for (let done = 0; done <= total; done += 1e8) {
+      nd({ status: 'pulling abc123', digest: 'sha256:abc123', total, completed: done });
+      await sleep(30);
+    }
+    nd({ status: 'verifying sha256 digest' });
+    nd({ status: 'writing manifest' });
+    installed.add(model.includes(':') ? model : `${model}:latest`);
+    nd({ status: 'success' });
+    return res.end();
+  }
+  if (req.url === '/api/chat') {
+    const body = await readJson(req);
+    lastOllamaRequest = body;
+    const known = [...installed].some((n) => n === body.model || n === `${body.model}:latest`);
+    if (!known) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: `model '${body.model}' not found` }));
+    }
+    res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+    const text = reply(body.messages);
+    for (const t of text.match(/[\s\S]{1,12}/g) || []) {
+      nd({ model: body.model, message: { role: 'assistant', content: t }, done: false });
+      await sleep(2);
+    }
+    nd({ model: body.model, message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop' });
+    return res.end();
+  }
+  res.writeHead(404);
+  res.end();
+}
+
 http
   .createServer(async (req, res) => {
+    if (req.url === '/__last-ollama') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(lastOllamaRequest));
+    }
+    if (req.url.startsWith('/api/')) return handleOllama(req, res);
     if (req.url.endsWith('/models')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ data: [{ id: 'mock' }, { id: 'mock-2' }] }));
@@ -65,4 +130,4 @@ http
     res.write('data: [DONE]\n\n');
     res.end();
   })
-  .listen(PORT, () => console.log(`Mock LLM su http://localhost:${PORT}/v1`));
+  .listen(PORT, () => console.log(`Mock LLM su http://localhost:${PORT} (Ollama) e http://localhost:${PORT}/v1 (OpenAI)`));
